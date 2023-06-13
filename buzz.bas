@@ -23,7 +23,7 @@ __Start_Restart
     dim _Bit0_Reset_Restrainer = r
 
     ; background color (black)
-    COLUBK = $01
+    COLUBK = $F4
     ; two-pixel wide ball and normal, single-color batariBasic playfield
     CTRLPF = $11
     scorecolor = $1C
@@ -57,7 +57,7 @@ __Start_Restart
     player0y = 90
 
     ; TODO: set offscreen
-    player2x = 25
+    player2x = 44
     player2y = 44
 
     ; TODO: set offscreen
@@ -191,11 +191,15 @@ end
 __End_P0_Anim
 
     ; color of playfield and ball (pink)
-    COLUPF = $16
+    COLUPF = $18
     ; color of player (and missile) 0 (yellow, bee)
     COLUP0 = $1C
+    ; 1 copy of player0 and 4 pixel wide missile
+    NUSIZ0 = $20
+    ; 1 copy of player0 and 2 pixel wide missile
+    NUSIZ1 = $10
     ; color of player (and missile) 1 (grayish)
-    COLUP1 = $0A
+    COLUP1 = $1C
     ; color of player 2 (cyan, bubble)
     COLUP2 = $AE
     ; color of player 3 (green, bad bug)
@@ -215,15 +219,17 @@ __End_P0_Anim
     if joy0right then player0x = player0x + 1
 
     if _stinger_in_play = 0 then goto __End_Stinger_Movement
-    player4y = player4y - 1
-    if player4y < 5 then _stinger_in_play = 0 : player4x = 5
+    missile0y = missile0y - 2 : bally = bally - 2
+    if missile0y < 5 then _stinger_in_play = 0 : missile0x = 200 : ballx = 200 : missile0y = 200 : bally = 200
     goto __End_Stinger
 __End_Stinger_Movement
 
     if !joy0fire then goto __End_Stinger
     _stinger_in_play = 1
-    player4x = player0x + 7
-    player4y = player0y - 8
+    missile0x = player0x + 3
+    missile0y = player0y - 8
+    ballx = player0x + 4
+    bally = player0y - 9
     goto __End_Stinger
 
 __End_Stinger
@@ -237,6 +243,8 @@ __End_Stinger
     NUSIZ2 = $03
     ;player2x = player2x + 1
     NUSIZ3 = $05
+
+    if collision(ball, player1) then score = score + 1
 
 __End_Bubble
 
