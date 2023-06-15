@@ -19,20 +19,41 @@ __Start_Restart
     ;***************************************************************
     ;  Var for reset switch that allows us to prevent constant
     ;  resets if the switch is held for multiple frames
+    ;  A second bit is used to determine if fire has been
+    ;  pressed to start the game
+
 
     dim _Bit0_Reset_Restrainer = r
+    dim _Bit1_Fire_Starter = r
+
+    ;***************************************************************
+    ;  Vars for determining various enemy movement states.
+    dim _bitop_enemy_state_bools = g
+    dim _bit0_enemy_state_bools_bubble_dir = g
+    dim _bit1_enemy_state_bools_bug_dir = g
+    dim _bit2_enemy_state_bools_mite_dir = g
+    dim _bit3_enemy_state_bools_mite_attack = g 
+    dim _bit4_enemy_state_bools_bubble_dead = g
+    dim _bit5_enemy_state_bools_bug_dead = g
+    dim _bit6_enemy_state_bools_mite_dead = g
 
     ; background color (black)
     COLUBK = $F4
-    ; two-pixel wide ball and normal, single-color batariBasic playfield
-    CTRLPF = $11
+    ; two-pixel wide ball and normal, and players move under playfield
+    CTRLPF = $15
     scorecolor = $1C
     ; reset score
     score = 0
 
-
     ; require the fire button to be pressed to start the game
     dim _game_started = w
+
+    ; index into arrays that determine player2 (bubble) visibility state
+    dim _ns2_index = h
+    _ns2_index = %00000111
+    ; holds the "original" x position of player2 so it can be offset if one of them is shot
+    dim _posx2 = i
+    _posx2 = 60
 
     ; variable for time since fire was released (so players can't spam)
     dim _stinger_in_play = a
@@ -57,7 +78,7 @@ __Start_Restart
     player0y = 90
 
     ; TODO: set offscreen
-    player2x = 44
+    player2x = 60
     player2y = 44
 
     ; TODO: set offscreen
@@ -86,7 +107,7 @@ end
     %0011100
     %0010100
     %0100010
-    %0111111
+    %1111111
     %1011101
     %0010100
     %0100010
@@ -100,7 +121,6 @@ end
     %011110
     %111111
 end
-
 
  playfield:
 ................
@@ -197,7 +217,7 @@ __End_P0_Anim
     ; 1 copy of player0 and 4 pixel wide missile
     NUSIZ0 = $20
     ; 1 copy of player0 and 2 pixel wide missile
-    NUSIZ1 = $10
+    NUSIZ1 = $30
     ; color of player (and missile) 1 (grayish)
     COLUP1 = $1C
     ; color of player 2 (cyan, bubble)
@@ -215,9 +235,17 @@ __End_P0_Anim
     ; Player control logic
     ; ***********************************
 
-    if joy0left then player0x = player0x - 1
-    if joy0right then player0x = player0x + 1
+    if joy0left && player0x > 20 then player0x = player0x - 1
+    if joy0right && player0x < 130 then player0x = player0x + 1
 
+
+    ; ****************************************************
+    ; Stinger movement logic
+    ;
+    ; The stinger is composed of the ball and missile0.
+    ; This is because using a player sprite would make
+    ; collision detection much more annoying.
+    ; ****************************************************
     if _stinger_in_play = 0 then goto __End_Stinger_Movement
     missile0y = missile0y - 2 : bally = bally - 2
     if missile0y < 5 then _stinger_in_play = 0 : missile0x = 200 : ballx = 200 : missile0y = 200 : bally = 200
@@ -230,22 +258,50 @@ __End_Stinger_Movement
     missile0y = player0y - 8
     ballx = player0x + 4
     bally = player0y - 9
-    goto __End_Stinger
 
 __End_Stinger
-
-    if player0x < 20 then player0x = 20
-    if player0x > 130 then player0x = 130
-
-    ; ********************************************
-    ; Player2 (Bubble) Spawn/Behavior Routine
-    ; ********************************************
-    NUSIZ2 = $03
-    ;player2x = player2x + 1
+    
     NUSIZ3 = $05
 
-    if collision(ball, player1) then score = score + 1
+    ; ********************************************
+    ; Tons of collision logic
+    ; ********************************************
+    if !collision(ball, player1) && !collision(missile0, player1) then goto __No_Collision
+    if bally < 40  || bally > 43 then goto __No_Collision
+    ;score = score + 1
+    temp4 = ballx - _posx2
+    ; do some fun bitmasking to determine what NUSIZ2 should be updated to
+    if temp4 < 8 || temp4 > 100 then _ns2_index = _ns2_index & %11111011 : goto update_p2
+    if temp4 < 24 then _ns2_index = _ns2_index & %11111101 : goto update_p2
+    if temp4 < 40 then _ns2_index = _ns2_index & %11111110 : goto update_p2
+update_p2
+    _stinger_in_play = 0 : missile0x = 200 : ballx = 200 : missile0y = 200 : bally = 200
+    if !_ns2_index then score = score + 1 : _bit4_enemy_state_bools_bubble_dead{4} = 1 
+
+__No_Collision
+
+    ; ********************************************
+    ; Player2 (Bubble) movement
+    ; ********************************************
+    if _bit4_enemy_state_bools_bubble_dead{4} then player2x = 200 : player2y = 200 : goto __End_Bubble
+    NUSIZ2 = ns2[_ns2_index]
+    if player2x - pos2[_ns2_index] > 130 then _bit0_enemy_state_bools_bubble_dir{0} = 0
+    if player2x - pos2[_ns2_index] < 5 then _bit0_enemy_state_bools_bubble_dir{0} = 1
+    if _bit0_enemy_state_bools_bubble_dir{0} then _posx2 = _posx2 + 1 else _posx2 = _posx2 - 1
+    player2x = _posx2 + pos2[_ns2_index]
 
 __End_Bubble
 
     goto gameloop
+
+; data table containing values to set NUSIZ2 to after a collision with the stinger
+; depending on which sprite copy was hit
+ data ns2
+ $20, $20, $20, $21, $20, $22, $21, $23 
+end
+
+; data table containing values to offset player2 position by depending on
+; if any of the sprite dupes have been shot so far
+ data pos2
+  $00, $20, $10, $10, $00, $00, $00, $00
+end
