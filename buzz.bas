@@ -1,3 +1,4 @@
+    include 6lives.asm
     set romsize 4k
     set kernel multisprite
     set kernel_options pfcolors
@@ -38,6 +39,13 @@ __Start_Restart
     ; the mite is considered "dead" to start the game
     _bit6_enemy_state_bools_mite_dead{6} = 1
 
+    ; vars to count how many times 
+    dim _player2_hits_left = j
+    dim _player2_hits_mid = l
+    dim _player2_hits_right = n
+    dim _player3_hits = o
+    dim _player4_hits = p
+
     ; background color (black)
     COLUBK = $F4
     ; two-pixel wide ball and normal, and players move under playfield
@@ -72,6 +80,9 @@ __Start_Restart
     dim _life_loss_counter = f
     _life_loss_counter = 0
 
+    ; bug hits
+    dim _bug_hits = k
+
     ; variable that counts to sixty
     dim _clock = e
 
@@ -92,6 +103,21 @@ __Start_Restart
     player3y = 32
 
     pfheight = 1
+
+    ; initiate lives to 3 and use the compact spacing
+    ; lives vars are used by the 6lives minikernel included above
+    dim lives_compact = 1
+    lives = 96
+
+    ; set lives sprite to a little heart
+    lives:
+    %00010000
+    %00111000
+    %01111100
+    %11111110
+    %11111110
+    %01101100
+end
 
     ;  Defines shape of player2 sprite (bubble)
     player2:
@@ -229,23 +255,100 @@ __End_P0_Anim
     COLUP1 = $AE
     ; color of player 2 (cyan, bubble)
     COLUP2 = $AE
-    ; color of player 3 (green, bad bug)
-    COLUP3 = $C8
+    ; color of player 3 (green if protected, red if not, bad bug)
+    if !_bit4_enemy_state_bools_bubble_dead{4} then COLUP3 = $CC else COLUP3 = $36
     ; color of player 4 (black, mite)
     COLUP4 = $00
     NUSIZ4 = $30
+    ; color of lives indicator (yellow)
+    lifecolor = $1C
 
     ; fills in the side boundaries with color
     PF0 = %11110000
 
     drawscreen
 
+    ; ****************************************************
+    ; Tons of collision logic
+    ; Collision checks should come right after drawscreen
+    ; because they are determined using TIA registers
+    ; ****************************************************
+
+    if !collision(ball, player1) && !collision(missile0, player1) then goto __End_Collision
+    if _bit4_enemy_state_bools_bubble_dead{4} then goto __Bug_Mite_Collisions
+    ; ****************************************************
+    ; I didn't really want to check for missile collisions
+    ; but I have to for certain cases explained below
+    ; ****************************************************
+    if !collision(ball, player1) then goto __End_Collision
+    ; when the bubbles are alive, we know the ball can only collide with two things, and they
+    ; will always be on different horizontal lines (y values)
+    if bally <= 33 then goto __Bug_Collision
+    _player3_hits = _player3_hits + 1
+    temp4 = ballx - _posx2
+    ; do some fun bitmasking to determine what NUSIZ2 should be updated to
+    if temp4 < 8 || temp4 > 100 then _player2_hits_left = _player2_hits_left + 1 : goto update_p2
+    if temp4 < 24 then _player2_hits_mid = _player2_hits_mid + 1 : goto update_p2
+    if temp4 < 40 then _player2_hits_right = _player2_hits_right + 1 : goto update_p2
+update_p2
+    if _player2_hits_left = 3 then _ns2_index = _ns2_index & %11111011
+    if _player2_hits_mid = 3 then _ns2_index = _ns2_index & %11111101
+    if _player2_hits_right = 3 then _ns2_index = _ns2_index & %11111110
+    if !_ns2_index then _bit4_enemy_state_bools_bubble_dead{4} = 1 : _player3_hits = 0
+    goto __Reset_Missile
+__Bug_Mite_Collisions
+    if bally > 34 || bally < 20 then goto __Mite_Collision
+    ; ********************************************************************************************************
+    ; We're defining a very generous bounding box for the beetle here, outside of which we can
+    ; comfortably say the stinger has collided with a mite.
+    ; If the stinger is inside that bounding box, then we check more closely to see if it's inside a
+    ; tight bounding box for the mite.
+    ; You may notice that we're only checking ball coordinates despite checking for missile collisions above.
+    ; This is for two reasons. One: I can use arithmetic to take care of that tiny discrepancy since they're
+    ; right next to each other. The other is more complicated.
+    ; I didn't want to check missile collisions at all. My hand was forced because the stinger moves two
+    ; units at once while the mite moves one (in the opposite direction), *and* because, when the mite shares
+    ; a horizontal line with the beetle, it will only be rendered every other frame. Because the 2600 was only
+    ; designed to render two player sprites, everyone who isn't the bee is secretly the same sprite (player1).
+    ; Because scanlines are drawn from the top of the screen, this isn't a problem if the sprites are not on
+    ; the same scanline. If they are, though, then the multisprite kernel will swap the sprite graphics each
+    ; frame and render them alternatingly. Because the 2600's collision detection is based on the graphics
+    ; data stored in the Television Interface Adapter registers, this means that we may be checking for
+    ; collision on a frame during which the mite isn't actually rendered. During that time, the ball can
+    ; move completely past the mite before it renders again. However, the missile should still (barely) be
+    ; touching it when it comes back, which will capture that edge case.
+    ; Make sense?
+    ; ********************************************************************************************************
+    if ballx < player3x - 12 then goto __Mite_Collision
+    if ballx > player3x + 30 then goto __Mite_Collision
+    if ballx < player4x - 5 then goto __Bug_Collision
+    if ballx > player4x then goto __Bug_Collision
+    if bally > player4y + 1 then goto __Bug_Collision
+    if bally < player4y - 4 then goto __Bug_Collision
+    goto __Mite_Collision
+__Bug_Collision
+    _player3_hits = _player3_hits + 1
+    goto __Reset_Missile
+__Mite_Collision
+    _player4_hits = _player4_hits + 1 : player4y = 200 : _bit6_enemy_state_bools_mite_dead{6} = 1 : _bit3_enemy_state_bools_mite_attack{3} = 0
+__Reset_Missile
+    _stinger_in_play = 0 : missile0x = 200 : ballx = 205 : missile0y = 200 : bally = 205
+__End_Collision
+
+    ; ***********************************
+    ; Player collision logic
+    ; ***********************************
+    if collision(player0, missile1) then lives = lives - 32 : missile1x = 200 : missile1y = 200 ; todo: damage animation/flicker? invincible frames?
+    if collision(player0, player1) then lives = lives - 32 : player4y = 200 : _bit6_enemy_state_bools_mite_dead{6} = 1 : _bit3_enemy_state_bools_mite_attack{3} = 0
+
+    ; TODO death sequence/game over on player death
+
+
     ; ***********************************
     ; Player control logic
     ; ***********************************
     if joy0left && player0x > 20 then player0x = player0x - 1
     if joy0right && player0x < 130 then player0x = player0x + 1
-
 
     ; ****************************************************
     ; Stinger movement logic
@@ -265,26 +368,9 @@ __End_Stinger_Movement
     missile0x = player0x + 3
     missile0y = player0y - 8
     ballx = player0x + 4
-    bally = player0y - 9
+    bally = player0y - 9 
 
 __End_Stinger
-
-    ; ********************************************
-    ; Tons of collision logic
-    ; ********************************************
-    if !collision(ball, player1) then goto __No_Collision
-    if bally < 40  || bally > 43 then goto __No_Collision
-    ;score = score + 1
-    temp4 = ballx - _posx2
-    ; do some fun bitmasking to determine what NUSIZ2 should be updated to
-    if temp4 < 8 || temp4 > 100 then _ns2_index = _ns2_index & %11111011 : goto update_p2
-    if temp4 < 24 then _ns2_index = _ns2_index & %11111101 : goto update_p2
-    if temp4 < 40 then _ns2_index = _ns2_index & %11111110 : goto update_p2
-update_p2
-    _stinger_in_play = 0 : missile0x = 200 : ballx = 200 : missile0y = 200 : bally = 200
-    if !_ns2_index then _bit4_enemy_state_bools_bubble_dead{4} = 1 
-
-__No_Collision
 
     ; ********************************************
     ; Player2 (Bubble) movement and fire behavior
@@ -314,6 +400,8 @@ __End_Bubble
     ; ********************************************
     ; Player3 (Big bug) movement and fire behavior
     ; ********************************************
+    if _bit4_enemy_state_bools_bubble_dead{4} && _player3_hits > 10 then player3x = 200 : player3y = 200 : goto __End_Bug ; todo make this actually end Stage 1
+    if !_bit4_enemy_state_bools_bubble_dead{4} && _player3_hits > 50 then player3x = 200 : player3y = 200 : goto __End_Bug
     if _bit5_enemy_state_bools_bug_dead{5} then player3x = 200 : player3y = 200 : goto __End_Bug
     ; make the bug's feet move once per second
     if !_clock then _bit7_enemy_state_bools_bug_step{7} = !_bit7_enemy_state_bools_bug_step{7}
@@ -348,7 +436,9 @@ __End_Bug
     ; ********************************************
     ; Mite only comes out if bubbles are gone due to 2600 technical
     ; limitations that I don't want to deal with (lol)
-    if !_bit4_enemy_state_bools_bubble_dead{4} then goto __End_Mite
+    ; I'm also only spawning this bastard 50 times since he's worth points
+    ; and I don't want people to just grind points off of him.
+    if !_bit4_enemy_state_bools_bubble_dead{4} || _player4_hits > 49 then goto __End_Mite
     if !_bit6_enemy_state_bools_mite_dead{6} then goto __End_Mite_Spawn
     temp5 = rand
     if _clock || temp5 > 230 then goto __End_Mite
@@ -367,7 +457,6 @@ __End_Mite_Movement
     if player4y > 90 then player4y = 200 : _bit6_enemy_state_bools_mite_dead{6} = 1 : _bit3_enemy_state_bools_mite_attack{3} = 0
 __End_Mite
 
-    set debug cyclescore
     ; ********************************************
     ; The usual reset switch logic at the end of
     ; the game loop where it belongs.
@@ -379,7 +468,7 @@ __End_Mite
     ; data table containing values to set NUSIZ2 to after a collision with the stinger
     ; depending on which sprite copy was hit
     data ns2
-    $20, $20, $20, $21, $20, $22, $21, $23 
+    $20, $20, $20, $21, $20, $22, $21, $23
 end
 
     ; data table containing values to offset player2 position by depending on
