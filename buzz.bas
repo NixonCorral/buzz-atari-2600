@@ -1,5 +1,5 @@
-    include 6lives.asm
-    set romsize 4k
+    includesfile multisprite_bankswitch.inc
+    set romsize 8k
     set kernel multisprite
     set kernel_options pfcolors
     set optimization speed
@@ -17,12 +17,14 @@ __Start_Restart
     s = 0 : t = 0 : u = 0 : v = 0 : w = 0 : x = 0 : y = 0 : z = 0
 
     ;***************************************************************
-    ;  Var for reset switch that allows us to prevent constant
-    ;  resets if the switch is held for multiple frames
-    ;  A second bit is used to determine if fire has been
-    ;  pressed to start the game
+    ; Some general game state bools
     dim _Bit0_Reset_Restrainer = r
     dim _Bit1_Fire_Starter = r
+    dim _Bit2_Intro_Sequence = r
+    dim _Bit3_Stage_2 = r
+    dim _Bit4_Bee_Death = r
+    dim _Bit5_Bee_Death_Sequence = r
+    dim _Bit6_Life_Loss_Reset = r
 
     ;***************************************************************
     ;  Vars for determining various enemy movement states.
@@ -35,16 +37,28 @@ __Start_Restart
     dim _bit5_enemy_state_bools_bug_dead = g
     dim _bit6_enemy_state_bools_mite_dead = g
     dim _bit7_enemy_state_bools_bug_step = g
+    _bit0_enemy_state_bools_bubble_dir{0} = 1
+
+    ; some variables for sounds (could definitely optimize this)
+    dim _bubble_pop_countdown = s
+    dim _bug_hit_countdown = t
+    dim _mite_hit_countdown = u
+    dim _fanfare_countdown = v
+    dim _player_hit_countdown = b
+
+    ; counter for 
+    dim _player_flicker = x
 
     ; the mite is considered "dead" to start the game
     _bit6_enemy_state_bools_mite_dead{6} = 1
 
-    ; vars to count how many times 
+    ; vars to count how many times enemies have been hit
     dim _player2_hits_left = j
     dim _player2_hits_mid = l
     dim _player2_hits_right = n
     dim _player3_hits = o
     dim _player4_hits = p
+
 
     ; background color (black)
     COLUBK = $F4
@@ -54,9 +68,9 @@ __Start_Restart
     ; reset score
     score = 0
 
-    ; require the fire button to be pressed to start the game
-    dim _game_started = w
-    _game_started = w
+    ; life counter
+    dim _player_lives = w
+    _player_lives = 3
 
     ; index into arrays that determine player2 (bubble) visibility state
     dim _ns2_index = h
@@ -65,11 +79,10 @@ __Start_Restart
     dim _posx2 = i
     _posx2 = 60
 
-    ; variable for time since fire was released (so players can't spam)
+    ; variable that determines if the stinger is in play
     dim _stinger_in_play = a
 
     ; variables for which game mode we're on and how long it's been since we pushed select
-    dim _Mode_Val = b
     dim _Select_Counter = m
 
     ; best practice dictates that if mode select is open for 30 seconds or so, return to Idle state
@@ -94,18 +107,12 @@ __Start_Restart
     missile1x = 200
     missile1y = 200
 
-    ; TODO: set offscreen
-    player2x = 60
-    player2y = 44
-
-    ; TODO: set offscreen
-    player3x = 50
-    player3y = 32
-
     pfheight = 1
 
     ; initiate lives to 3 and use the compact spacing
     ; lives vars are used by the 6lives minikernel included above
+    ; we are actually using it as a health bar for this game
+    ; and tracking lives separately
     dim lives_compact = 1
     lives = 96
 
@@ -117,6 +124,8 @@ __Start_Restart
     %11111110
     %11111110
     %01101100
+    %00000000
+    %00000000
 end
 
     ;  Defines shape of player2 sprite (bubble)
@@ -206,9 +215,36 @@ end
  
 gameloop
 
+    ; set lives sprite to a little heart
+    lives:
+    %00010000
+    %00111000
+    %01111100
+    %11111110
+    %11111110
+    %01101100
+    %00000000
+    %00000000
+end
+
     _clock = _clock + 1
     if _clock > 59 then _clock = 0
 
+    if _Bit5_Bee_Death_Sequence{5} then goto __End_P0_Anim
+
+    if !_player_flicker then goto __Start_P0_Anim
+    _player_flicker = _player_flicker - 3
+    if !(_player_flicker & %00000111) then goto __Start_P0_Anim
+    player0:
+    %00000000
+end
+    goto __End_P0_Anim
+__Start_P0_Anim
+    ; because the clock and the flicker counter are synchronized in terms of parity (somehow?)
+    ; I'm occasionally bumping the clock up by 1 during the flicker state *unless* it
+    ; equals zero, because a lot of stuff initiates on that (lol). I can't imagine
+    ; this will create any other issues.
+    if _player_flicker && _clock then _clock = _clock + rand&1
     if _clock & 1 then goto __Down_Flap
 
     player0:
@@ -243,13 +279,16 @@ end
 
 __End_P0_Anim
 
-    ; color of playfield and ball (pink)
+    if _Bit3_Stage_2{3} then goto __Stage_2_Start
+
+    ; color of playfield and ball (yellow, beehive)
     COLUPF = $18
     ; color of player (and missile) 0 (yellow, bee)
     COLUP0 = $1C
     ; 1 copy of player0 and 4 pixel wide missile
     NUSIZ0 = $20
-    ; 1 copy of player1 and 2 pixel wide missile
+    ; player1 doesn't actually exist in my game, but when the missile isn't on the same
+    ; horizontal line as any of the p1 copies, it will assume these characteristics
     if _bit4_enemy_state_bools_bubble_dead{4} then NUSIZ1 = $30 else NUSIZ1 = ns2[_ns2_index]
     ; color of player (and missile) 1 (cyan)
     COLUP1 = $AE
@@ -263,10 +302,177 @@ __End_P0_Anim
     ; color of lives indicator (yellow)
     lifecolor = $1C
 
+    ; make the bug's feet move once per second
+    if !_clock then _bit7_enemy_state_bools_bug_step{7} = !_bit7_enemy_state_bools_bug_step{7}
+    if _bit7_enemy_state_bools_bug_step{7} then NUSIZ3 = $37 else NUSIZ3 = $37 | 8
+
     ; fills in the side boundaries with color
     PF0 = %11110000
 
     drawscreen
+
+    ;************************************************
+    ; Reset character positions and things of that
+    ; nature after a player respawns
+    ;************************************************
+    if !_Bit6_Life_Loss_Reset{6} then goto __Skip_Life_Reset
+    _clock = 1
+    _player_hit_countdown = 0
+    if !_bit4_enemy_state_bools_bubble_dead{4} then player2x = 65 : player2y = 44
+    player3y = 32 : player3x = 65
+    _bit6_enemy_state_bools_mite_dead{6} = 1
+    _bit3_enemy_state_bools_mite_attack{3} = 0
+    player0x = 70
+    player0y = 90
+    lives = 96
+    _Bit6_Life_Loss_Reset{6} = 0
+__Skip_Life_Reset
+
+    ;*************************************************
+    ; On initial startup, we don't want play to start
+    ; until the player has pressed the fire button.
+    ; When they do, the enemies will scroll onto the
+    ; screen without attacking until they reach the
+    ; middle. Then regular gameplay starts.
+    ;*************************************************
+    if !_Bit1_Fire_Starter{1} && joy0fire then _Bit2_Intro_Sequence{2} = 1
+    if !_Bit2_Intro_Sequence{2} then goto __Skip_Intro
+    NUSIZ2 = ns2[_ns2_index]
+    if !_Bit1_Fire_Starter{1} then _Bit1_Fire_Starter{1} = 1 : player2y = 44 : player2x = 5 : player3y = 32 : player3x = 110
+    if player2x < 65 then player2x = player2x + 1
+    if player3x > 65 && _clock & 1 then player3x = player3x - 1 
+    if player2x = 65 && player3x = 65 then _Bit2_Intro_Sequence{2} = 0 : _clock = 1
+    goto __Reset_Listener
+__Skip_Intro
+    if !_Bit1_Fire_Starter{1} then goto gameloop
+
+    ; something that could possibly be described as music
+    if !_bit5_enemy_state_bools_bug_dead{5} then goto __Skip_Stage1_Win
+    player4x = 200 : player4y = 200
+    if _fanfare_countdown > 90 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 25 : goto __Reset_Listener
+    if _fanfare_countdown > 80 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 26 : goto __Reset_Listener
+    if _fanfare_countdown > 70 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 25 : goto __Reset_Listener
+    if _fanfare_countdown > 0 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 20 : goto __Reset_Listener
+    AUDV0 = 0
+    _Bit3_Stage_2{3} = 1
+    goto __Reset_Listener
+__Skip_Stage1_Win
+
+    ;*********************************************
+    ; little death anim/sfx for when the Bee dies
+    ;*********************************************
+    if !_Bit5_Bee_Death_Sequence{5} then goto __Skip_Bee_Death_Anim
+    AUDV0 = 0
+    _bubble_pop_countdown = _bubble_pop_countdown - 1
+    if _bubble_pop_countdown < 40 then goto __Bee_Death_Frame_2
+    AUDC1 = 4 : AUDV1 = 4 : AUDF1 = 10
+    player0:
+    %00011000
+    %00111100
+    %01000010
+    %11111111
+    %01000010
+    %00111100
+    %00111100
+    %00111100
+    %01000010
+end
+    goto __End_Bee_Death_Anim_Frames
+__Bee_Death_Frame_2
+    if _bubble_pop_countdown < 20 then goto __Bee_Death_Frame_3
+    AUDC1 = 4 : AUDV1 = 4 : AUDF1 = 15
+    player0:
+    %00111100
+    %00111100
+    %00000000
+    %00000000
+    %00000000
+    %00000000
+end
+    goto __End_Bee_Death_Anim_Frames
+__Bee_Death_Frame_3
+    AUDC1 = 8 : AUDV1 = 2 : AUDF1 = 28
+    player0:
+    %10000001
+    %01000010
+    %00100100
+    %00000000
+    %00000000
+    %11100111
+    %00000000
+    %00000000
+    %00100100
+    %01000010
+    %10000001
+end
+__End_Bee_Death_Anim_Frames
+    if _bubble_pop_countdown then goto __Reset_Listener
+    AUDV1 = 0
+    if _player_lives < 1 then goto __Game_Over_Loop
+    _Bit5_Bee_Death_Sequence{5} = 0
+    ; we can just continue to the "lives left" screen from here as long
+    ; as I don't fuck up and put anything else between here
+__Skip_Bee_Death_Anim
+
+    if !_Bit4_Bee_Death{4} then goto __Skip_Bee_Death
+    _player_flicker = 0
+    NUSIZ1 = $30
+    player2y = 200
+    player3y = 200
+    player4y = 200
+    missile0y = 200
+    missile1y = 200
+    bally = 200
+    player4y = 200
+    ; reusing this var because I'm running out lol
+    _bubble_pop_countdown = _bubble_pop_countdown - 1
+
+    ;  Defines shape of player1 sprite (a one)
+    if _player_lives > 1 then goto __Skip_One
+    player1:
+    %11111110
+    %00010000
+    %00010000
+    %00010000
+    %10010000
+    %01010000
+    %00110000
+end
+
+    goto __Skip_Two
+__Skip_One
+
+    ;  Defines shape of player1 sprite (a two)
+    player1:
+    %11111110
+    %10000000
+    %10000000
+    %11111110
+    %00000010
+    %00000010
+    %11111110
+end
+
+__Skip_Two
+
+    player0x = 60
+    player0y = 55
+    player1x = player0x + 25
+    player1y = player0y - 5
+
+    if _bubble_pop_countdown then goto __Reset_Listener
+    player1x = 200
+    player1y = 200
+    _Bit4_Bee_Death{4} = 0
+    _Bit6_Life_Loss_Reset{6} = 1
+    goto __Reset_Listener
+__Skip_Bee_Death
+
+    if _player_hit_countdown then _bubble_pop_countdown = 0 : _player_hit_countdown = _player_hit_countdown - 1 : AUDC0 = 8 : AUDV0 = 2 : AUDF0 = _player_hit_countdown : goto __End_Mite_Sound
+    if _bubble_pop_countdown then _mite_hit_countdown = 0 : _bubble_pop_countdown = _bubble_pop_countdown - 1 : AUDC0 = 8 : AUDV0 = 8 : AUDF0 = 5 - _bubble_pop_countdown : goto __End_Mite_Sound
+    if _mite_hit_countdown && _bit4_enemy_state_bools_bubble_dead{4} then _mite_hit_countdown = _mite_hit_countdown - 1 : AUDC0 = 7 : AUDV0 = 14 : AUDF0 = 5 - _mite_hit_countdown else AUDV0 = 0
+__End_Mite_Sound
+    if _bug_hit_countdown then _bug_hit_countdown = _bug_hit_countdown - 1 : AUDC1 = 8 : AUDV1 = 2 : AUDF1 = 20 - _bug_hit_countdown else AUDV1 = 0 
 
     ; ****************************************************
     ; Tons of collision logic
@@ -287,14 +493,14 @@ __End_P0_Anim
     _player3_hits = _player3_hits + 1
     temp4 = ballx - _posx2
     ; do some fun bitmasking to determine what NUSIZ2 should be updated to
-    if temp4 < 8 || temp4 > 100 then _player2_hits_left = _player2_hits_left + 1 : goto update_p2
-    if temp4 < 24 then _player2_hits_mid = _player2_hits_mid + 1 : goto update_p2
-    if temp4 < 40 then _player2_hits_right = _player2_hits_right + 1 : goto update_p2
+    if temp4 < 8 || temp4 > 100 then _player2_hits_left = _player2_hits_left + 1 : _bubble_pop_countdown = 1 : goto update_p2
+    if temp4 < 24 then _player2_hits_mid = _player2_hits_mid + 1 : _bubble_pop_countdown = 1 : goto update_p2
+    if temp4 < 40 then _player2_hits_right = _player2_hits_right + 1 : _bubble_pop_countdown = 1 : goto update_p2
 update_p2
-    if _player2_hits_left = 3 then _ns2_index = _ns2_index & %11111011
-    if _player2_hits_mid = 3 then _ns2_index = _ns2_index & %11111101
-    if _player2_hits_right = 3 then _ns2_index = _ns2_index & %11111110
-    if !_ns2_index then _bit4_enemy_state_bools_bubble_dead{4} = 1 : _player3_hits = 0
+    if _player2_hits_left = 3 && _ns2_index & %00000100 then _ns2_index = _ns2_index & %11111011 : score = score + 10 : _bubble_pop_countdown = 5
+    if _player2_hits_mid = 3 && _ns2_index & %00000010 then _ns2_index = _ns2_index & %11111101 : score = score + 10 : _bubble_pop_countdown = 5
+    if _player2_hits_right = 3 && _ns2_index & %00000001 then _ns2_index = _ns2_index & %11111110 : score = score + 10 : _bubble_pop_countdown = 5
+    if !_ns2_index then _bit4_enemy_state_bools_bubble_dead{4} = 1 : _player3_hits = 0 
     goto __Reset_Missile
 __Bug_Mite_Collisions
     if bally > 34 || bally < 20 then goto __Mite_Collision
@@ -327,9 +533,12 @@ __Bug_Mite_Collisions
     if bally < player4y - 4 then goto __Bug_Collision
     goto __Mite_Collision
 __Bug_Collision
+    _bug_hit_countdown = 20
     _player3_hits = _player3_hits + 1
     goto __Reset_Missile
 __Mite_Collision
+    score = score + 5
+    _mite_hit_countdown = 5
     _player4_hits = _player4_hits + 1 : player4y = 200 : _bit6_enemy_state_bools_mite_dead{6} = 1 : _bit3_enemy_state_bools_mite_attack{3} = 0
 __Reset_Missile
     _stinger_in_play = 0 : missile0x = 200 : ballx = 205 : missile0y = 200 : bally = 205
@@ -338,11 +547,11 @@ __End_Collision
     ; ***********************************
     ; Player collision logic
     ; ***********************************
-    if collision(player0, missile1) then lives = lives - 32 : missile1x = 200 : missile1y = 200 ; todo: damage animation/flicker? invincible frames?
-    if collision(player0, player1) then lives = lives - 32 : player4y = 200 : _bit6_enemy_state_bools_mite_dead{6} = 1 : _bit3_enemy_state_bools_mite_attack{3} = 0
+    if collision(player0, missile1) && !_player_flicker then lives = lives - 32 : missile1x = 200 : missile1y = 200 : _player_flicker = 120 : _player_hit_countdown = 10 ; todo: damage animation/flicker? invincible frames?
+    if collision(player0, player1) && !_player_flicker then lives = lives - 32 : player4y = 200 : _bit6_enemy_state_bools_mite_dead{6} = 1 : _bit3_enemy_state_bools_mite_attack{3} = 0 : _player_flicker = 120 : _player_hit_countdown = 10
 
-    ; TODO death sequence/game over on player death
-
+    ; On losing last chunk of health, immediately kill the player, we can ignore other logic
+    if lives < 32 then _player_lives = _player_lives - 1 : _bubble_pop_countdown = 60 : _Bit4_Bee_Death{4} = 1 : _Bit5_Bee_Death_Sequence{5} = 1 : goto __Reset_Listener
 
     ; ***********************************
     ; Player control logic
@@ -368,7 +577,7 @@ __End_Stinger_Movement
     missile0x = player0x + 3
     missile0y = player0y - 8
     ballx = player0x + 4
-    bally = player0y - 9 
+    bally = player0y - 9
 
 __End_Stinger
 
@@ -384,9 +593,18 @@ __End_Stinger
 
     if missile1y < 200 then goto __End_Bubble_Shoot_Spawn
     temp5 = rand
-    ; roughly 35% chance to shoot every time the clock resets and bubbles are fully in play
+    ; increase chance to shoot every time the clock resets (and bubbles are fully in play)
+    ; from about 70% to 90% as bubbles disappear
+    temp4 = 0
+    if _ns2_index{0} then temp4 = temp4 + 1
+    if _ns2_index{1} then temp4 = temp4 + 1
+    if _ns2_index{2} then temp4 = temp4 + 1
+    if temp4 > 2 then temp4 = 76 : goto __Bubble_Shoot_Checks
+    if temp4 > 1 then temp4 = 50 : goto __Bubble_Shoot_Checks
+    temp4 = 25
+__Bubble_Shoot_Checks
     if player2x < 30 || player2x > 110 then goto __End_Bubble_Shoot
-    if _clock || temp5 < 166 then goto __End_Bubble_Shoot
+    if _clock || temp5 < temp4 then goto __End_Bubble_Shoot
     missile1x = player2x + 4 : missile1y = player2y + 1
 
 __End_Bubble_Shoot_Spawn
@@ -398,14 +616,11 @@ __End_Bubble_Shoot
 __End_Bubble
 
     ; ********************************************
-    ; Player3 (Big bug) movement and fire behavior
+    ; Player3 (Goon bug) movement and fire behavior
     ; ********************************************
-    if _bit4_enemy_state_bools_bubble_dead{4} && _player3_hits > 10 then player3x = 200 : player3y = 200 : goto __End_Bug ; todo make this actually end Stage 1
-    if !_bit4_enemy_state_bools_bubble_dead{4} && _player3_hits > 50 then player3x = 200 : player3y = 200 : goto __End_Bug
+    if _bit4_enemy_state_bools_bubble_dead{4} && _player3_hits > 10 then score = score + 500 : player3x = 200 : player3y = 200 : _bit5_enemy_state_bools_bug_dead{5} = 1 : _fanfare_countdown = 100 : goto __End_Bug ; todo make this actually end Stage 1
+    if !_bit4_enemy_state_bools_bubble_dead{4} && _player3_hits > 50 then score = score + 1000 : player3x = 200 : player3y = 200 : _bit5_enemy_state_bools_bug_dead{5} = 1 : _fanfare_countdown = 100 : goto __End_Bug
     if _bit5_enemy_state_bools_bug_dead{5} then player3x = 200 : player3y = 200 : goto __End_Bug
-    ; make the bug's feet move once per second
-    if !_clock then _bit7_enemy_state_bools_bug_step{7} = !_bit7_enemy_state_bools_bug_step{7}
-    if _bit7_enemy_state_bools_bug_step{7} then NUSIZ3 = $37 else NUSIZ3 = $37 | 8
     ; only move the bug every other frame
     if _clock & 1 then goto __Skip_Frame
     if player3x > 90 then _bit1_enemy_state_bools_bug_dir{1} = 0
@@ -457,12 +672,40 @@ __End_Mite_Movement
     if player4y > 90 then player4y = 200 : _bit6_enemy_state_bools_mite_dead{6} = 1 : _bit3_enemy_state_bools_mite_attack{3} = 0
 __End_Mite
 
+__Reset_Listener
     ; ********************************************
     ; The usual reset switch logic at the end of
     ; the game loop where it belongs.
     ; ********************************************
     if !switchreset then _Bit0_Reset_Restrainer{0} = 0 : goto gameloop
     if _Bit0_Reset_Restrainer{0} then goto gameloop
+    goto __Start_Restart
+
+
+    ;********************************************************
+    ; Here's where Stage 2 game logic goes
+    ; You will probably notice some duplicated
+    ; code. That's because I thought it would
+    ; be easier than trying to weave stage 2
+    ; logic into stage 1 logic, especially since
+    ; some variables are borrowed and things of
+    ; that nature. Maybe I could've used subroutines idk
+    ; But we're racing the beam here, so cycles are precious!
+    ;********************************************************
+__Stage_2_Start
+    drawscreen
+    goto __Reset_Listener
+
+__Game_Over_Loop
+    drawscreen
+    ; mute sounds
+    AUDC0 = 0 : AUDV0 = 0 : AUDF0 = 0
+    AUDC0 = 0 : AUDV0 = 0 : AUDF0 = 0
+    ; wait for a button press to return to gameplay.
+    if joy0fire then goto __Start_Restart
+    ; reset check
+    if !switchreset then _Bit0_Reset_Restrainer{0} = 0 : goto __Game_Over_Loop
+    if _Bit0_Reset_Restrainer{0} then goto __Game_Over_Loop
     goto __Start_Restart
 
     ; data table containing values to set NUSIZ2 to after a collision with the stinger
@@ -476,3 +719,6 @@ end
     data pos2
     $00, $20, $10, $10, $00, $00, $00, $00
 end
+
+    bank 2
+    inline 6lives.asm
