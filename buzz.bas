@@ -25,6 +25,8 @@ __Start_Restart
     dim _Bit4_Bee_Death = r
     dim _Bit5_Bee_Death_Sequence = r
     dim _Bit6_Life_Loss_Reset = r
+    dim _Bit7_Stage_2_Init = r
+    _Bit3_Stage_2{3} = 1
 
     ;***************************************************************
     ;  Vars for determining various enemy movement states.
@@ -38,6 +40,15 @@ __Start_Restart
     dim _bit6_enemy_state_bools_mite_dead = g
     dim _bit7_enemy_state_bools_bug_step = g
     _bit0_enemy_state_bools_bubble_dir{0} = 1
+
+    ; Rename them for Stage 2
+    dim _bit0_enemy_state_bools_spider_dir = g
+    dim _bit1_enemy_state_bools_boss_dir = g
+    dim _bit2_enemy_state_bools_spider_dead = g
+    dim _bit3_enemy_state_bools_boss_dead = g
+    dim _bit4_enemy_state_bools_boss_mid_dead = g
+    dim _bit5_enemy_state_bools_boss_low_dead = g
+    _bit2_enemy_state_bools_spider_dead{2} = 1
 
     ; some variables for sounds (could definitely optimize this)
     dim _bubble_pop_countdown = s
@@ -86,7 +97,7 @@ __Start_Restart
     dim _Select_Counter = m
 
     ; best practice dictates that if mode select is open for 30 seconds or so, return to Idle state
-    dim _Mode_Select_Idle_Frames = c
+    dim _Boss_Anim_Counter = c
     dim _Mode_Select_Idle_Seconds = d
 
     ; variable for counting how long since you lost a life
@@ -318,6 +329,9 @@ __End_P0_Anim
     if !_Bit6_Life_Loss_Reset{6} then goto __Skip_Life_Reset
     _clock = 1
     _player_hit_countdown = 0
+    _stinger_in_play = 0
+    bally = 200
+    missile0y = 200
     if !_bit4_enemy_state_bools_bubble_dead{4} then player2x = 65 : player2y = 44
     player3y = 32 : player3x = 65
     _bit6_enemy_state_bools_mite_dead{6} = 1
@@ -547,7 +561,7 @@ __End_Collision
     ; ***********************************
     ; Player collision logic
     ; ***********************************
-    if collision(player0, missile1) && !_player_flicker then lives = lives - 32 : missile1x = 200 : missile1y = 200 : _player_flicker = 120 : _player_hit_countdown = 10 ; todo: damage animation/flicker? invincible frames?
+    if collision(player0, missile1) && !_player_flicker then lives = lives - 32 : missile1x = 200 : missile1y = 200 : _player_flicker = 120 : _player_hit_countdown = 10
     if collision(player0, player1) && !_player_flicker then lives = lives - 32 : player4y = 200 : _bit6_enemy_state_bools_mite_dead{6} = 1 : _bit3_enemy_state_bools_mite_attack{3} = 0 : _player_flicker = 120 : _player_hit_countdown = 10
 
     ; On losing last chunk of health, immediately kill the player, we can ignore other logic
@@ -559,27 +573,7 @@ __End_Collision
     if joy0left && player0x > 20 then player0x = player0x - 1
     if joy0right && player0x < 130 then player0x = player0x + 1
 
-    ; ****************************************************
-    ; Stinger movement logic
-    ;
-    ; The stinger is composed of the ball and missile0.
-    ; This is because using a player sprite would make
-    ; collision detection much more annoying.
-    ; ****************************************************
-    if _stinger_in_play = 0 then goto __End_Stinger_Movement
-    missile0y = missile0y - 2 : bally = bally - 2
-    if missile0y < 5 then _stinger_in_play = 0 : missile0x = 200 : ballx = 200 : missile0y = 200 : bally = 200
-    goto __End_Stinger
-__End_Stinger_Movement
-
-    if !joy0fire then goto __End_Stinger
-    _stinger_in_play = 1
-    missile0x = player0x + 3
-    missile0y = player0y - 8
-    ballx = player0x + 4
-    bally = player0y - 9
-
-__End_Stinger
+    gosub __Stinger_Sub
 
     ; ********************************************
     ; Player2 (Bubble) movement and fire behavior
@@ -673,6 +667,7 @@ __End_Mite_Movement
 __End_Mite
 
 __Reset_Listener
+
     ; ********************************************
     ; The usual reset switch logic at the end of
     ; the game loop where it belongs.
@@ -693,7 +688,177 @@ __Reset_Listener
     ; But we're racing the beam here, so cycles are precious!
     ;********************************************************
 __Stage_2_Start
-    drawscreen
+
+    _Boss_Anim_Counter = _Boss_Anim_Counter + 1
+    if _Boss_Anim_Counter > 10 then _Boss_Anim_Counter = 0
+
+    if _Boss_Anim_Counter > 5 then goto __Boss_Anim_Frame_2
+
+    player2:
+    %10000001
+    %01111110
+    %11111111
+    %11111111
+    %11111111
+    %11111111
+    %01111110
+    %10111101
+    %01111110
+    %11111111
+    %11111111
+    %11111111
+    %01111110
+    %10111101
+    %01111110
+    %11111111
+    %11011011
+    %10111101
+    %01111110
+    %00111100
+    %01010010
+    %10001001
+    %10010001
+    %01001010
+    %00111100
+end
+    goto __End_Boss_Anim
+
+__Boss_Anim_Frame_2 
+
+    player2:
+    %10000001
+    %01111110
+    %11111111
+    %11111111
+    %11111111
+    %11111111
+    %01111110
+    %10111101
+    %01111110
+    %11111111
+    %11111111
+    %11111111
+    %01111110
+    %10111101
+    %01111110
+    %11111111
+    %11011011
+    %10111101
+    %01111110
+    %00111100
+    %01011010
+    %10100101
+    %10100101
+    %01000010
+    %00100100
+end
+
+    ; Spider grunt sprite
+    player3:
+    %10011001
+    %10100101
+    %01111110
+    %01011010
+    %00111100
+    %01011010
+    %11000010
+    %00000001
+end
+
+
+    ; Boss projectile sprite
+    player4:
+    %01000010
+    %11000011
+    %11000011
+    %11100111
+    %11011111
+    %01101110
+    %00111100
+end
+
+__End_Boss_Anim
+
+    ; color of playfield and ball (yellow, beehive)
+    COLUPF = $18
+    ; 1 copy of player0 and 4 pixel wide missile
+    NUSIZ0 = $20
+    NUSIZ1 = $30
+    ; color of missile (purple to match spider)
+    COLUP1 = $4C
+    ; color of boss (black)
+    COLUP2 = $00
+    ; color of player 3 (spider, purple)
+    COLUP3 = $4C
+    ; color of player4 (boss attack, white)
+    COLUP4 = $0E
+    NUSIZ2 = $35
+    if _clock & 1 then NUSIZ3 = $30 else NUSIZ3 = $30 | 8
+    NUSIZ4 = $30
+
+    ; color of lives indicator (yellow)
+    lifecolor = $1C
+
+    ; fills in the side boundaries with color
+    PF0 = %11110000
+
+    player2y = 32
+
+    drawscreen 
+
+    /* if collision(player0, missile1) && !_player_flicker then lives = lives - 32 : missile1x = 200 : missile1y = 200 : _player_flicker = 120 : _player_hit_countdown = 10
+    if collision(player0, player1) && !_player_flicker then lives = lives - 32 : player4y = 200 : _bit6_enemy_state_bools_mite_dead{6} = 1 : _bit3_enemy_state_bools_mite_attack{3} = 0 : _player_flicker = 120 : _player_hit_countdown = 10 */
+
+    ; ***********************************
+    ; Player control logic
+    ; ***********************************
+    if joy0left && player0x > 20 then player0x = player0x - 1
+    if joy0right && player0x < 130 then player0x = player0x + 1
+
+    gosub __Stinger_Sub
+
+    ; fix race condition
+    if missile1y < 90 then missile1y = missile1y + 1 else missile1y = 200
+    if player4y < 90 then player4y = player4y + 1 else player4y = 200
+
+    ; ********************************************
+    ; Player4 (Spider) movement
+    ; ********************************************
+    ; Spi only comes out if bubbles are gone due to 2600 technical
+    ; limitations that I don't want to deal with (lol)
+    ; I'm also only spawning this bastard 50 times since he's worth points
+    ; and I don't want people to just grind points off of him.
+    if _player4_hits > 49 then goto __End_Spider
+    if !_bit2_enemy_state_bools_spider_dead{2} then goto __End_Spider_Spawn
+    temp5 = rand
+    if _clock || temp5 > 130 then goto __End_Spider
+    if temp5 > 65 then player3x = 5 : player3y = 44 : _bit0_enemy_state_bools_spider_dir{0} = 1 : _bit2_enemy_state_bools_spider_dead{2} = 0 : goto __End_Spider_Spawn
+    player3x = 147 : player3y = 44 : _bit0_enemy_state_bools_spider_dir{0} = 0 : _bit2_enemy_state_bools_spider_dead{2} = 0
+__End_Spider_Spawn
+    ; Spider moves to wherever the bee is quickly and then shoots him.
+    if _bit0_enemy_state_bools_spider_dir{0} then goto __End_Spider_Move_Left
+    player3x = player3x - 2
+    if player3x < player0x + 3 && missile1y > 90 then missile1x = player3x : missile1y = player3y
+    goto __End_Spider_Movement
+__End_Spider_Move_Left
+    player3x = player3x + 2
+    if player3x > player0x + 3 && missile1y > 90 then missile1x = player3x : missile1y = player3y
+__End_Spider_Movement
+    if player3x < 5 || player3x > 147 then _bit2_enemy_state_bools_spider_dead{2} = 1
+__End_Spider
+
+    ; *************************************
+    ; Boss movement and fire behavior
+    ; Boss exists in three phases, during which
+    ; the segments of his body are removed
+    if player2x < 55 then _bit1_enemy_state_bools_bug_dir{1} = 1
+    if player2x > 100 then _bit1_enemy_state_bools_bug_dir{1} = 0
+    if _clock & 1 then goto _Skip_Boss_Move
+    if _bit1_enemy_state_bools_bug_dir{1} then player2x = player2x + 1 else player2x = player2x - 1
+_Skip_Boss_Move
+    temp5 = rand
+    if _clock > 29 && _clock < 31 && temp5 < 150 && player4y > 90 then player4x = player2x : player4y = player2y
+__End_Boss_Move
     goto __Reset_Listener
 
 __Game_Over_Loop
@@ -708,6 +873,30 @@ __Game_Over_Loop
     if _Bit0_Reset_Restrainer{0} then goto __Game_Over_Loop
     goto __Start_Restart
 
+__Stinger_Sub
+    ; ****************************************************
+    ; Stinger movement logic
+    ;
+    ; The stinger is composed of the ball and missile0.
+    ; This is because using a player sprite would make
+    ; collision detection much more annoying.
+    ; ****************************************************
+    if _stinger_in_play = 0 then goto __End_Stinger_Movement
+    missile0y = missile0y - 2 : bally = bally - 2
+    if missile0y < 5 then _stinger_in_play = 0 : missile0x = 200 : ballx = 200 : missile0y = 200 : bally = 200
+    goto __End_Stinger
+__End_Stinger_Movement
+
+    if !joy0fire then goto __End_Stinger
+    _stinger_in_play = 1
+    missile0x = player0x + 3
+    missile0y = player0y - 8
+    ballx = player0x + 4
+    bally = player0y - 9
+
+__End_Stinger
+    return
+
     ; data table containing values to set NUSIZ2 to after a collision with the stinger
     ; depending on which sprite copy was hit
     data ns2
@@ -719,6 +908,12 @@ end
     data pos2
     $00, $20, $10, $10, $00, $00, $00, $00
 end
-
+    ; ******************************
+    ; We're bankswitching, baby!
+    ; This is pretty much just here
+    ; to hold graphics and things of
+    ; that nature, but it sure saves
+    ; a lot of space for bank 1
+    ; ******************************
     bank 2
     inline 6lives.asm
