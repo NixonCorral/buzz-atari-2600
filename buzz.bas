@@ -27,7 +27,7 @@ __Start_Restart
     dim _Bit5_Bee_Death_Sequence = r
     dim _Bit6_Life_Loss_Reset = r
     dim _Bit7_Stage_2_Init = r
-    ;_Bit3_Stage_2{3} = 1
+    _Bit3_Stage_2{3} = 1
 
     ;***************************************************************
     ;  Vars for determining various enemy movement states.
@@ -296,7 +296,7 @@ end
 
 __End_P0_Anim
 
-    if _Bit3_Stage_2{3} || _Bit7_Stage_2_Init{7} then goto __Stage_2_Start
+    if _Bit3_Stage_2{3} || _Bit7_Stage_2_Init{7} then goto __Stage_2_Start bank2
 
     ; color of playfield and ball (yellow, beehive)
     COLUPF = $18
@@ -369,6 +369,7 @@ __Skip_Intro
     ; something that could possibly be described as music
     if !_bit5_enemy_state_bools_bug_dead{5} then goto __Skip_Stage1_Win
     player4x = 200 : player4y = 200
+    missile1x = 200 : missile1y = 200
     ; reusing this again to save vars
     if !_bug_hit_countdown then _bubble_pop_countdown = _bubble_pop_countdown + 1 : _bug_hit_countdown = 20
     
@@ -409,6 +410,8 @@ __Fanfare
     AUDV0 = 0
     player3x = 200 : player3y = 200
     player2x = 75 : player2y = 0
+    ; just in case
+    _stinger_in_play = 0 : missile0x = 200 : ballx = 205 : missile0y = 200 : bally = 205
     _Bit7_Stage_2_Init{7} = 1
     goto __Reset_Listener
 __Skip_Stage1_Win
@@ -416,112 +419,12 @@ __Skip_Stage1_Win
     ;*********************************************
     ; little death anim/sfx for when the Bee dies
     ;*********************************************
-    if !_Bit5_Bee_Death_Sequence{5} then goto __Skip_Bee_Death_Anim
-    AUDV0 = 0
-    _bubble_pop_countdown = _bubble_pop_countdown - 1
-    if _bubble_pop_countdown < 40 then goto __Bee_Death_Frame_2
-    AUDC1 = 4 : AUDV1 = 4 : AUDF1 = 10
-    player0:
-    %00011000
-    %00111100
-    %01000010
-    %11111111
-    %01000010
-    %00111100
-    %00111100
-    %00111100
-    %01000010
-end
-    goto __End_Bee_Death_Anim_Frames
-__Bee_Death_Frame_2
-    if _bubble_pop_countdown < 20 then goto __Bee_Death_Frame_3
-    AUDC1 = 4 : AUDV1 = 4 : AUDF1 = 15
-    player0:
-    %00111100
-    %00111100
-    %00000000
-    %00000000
-    %00000000
-    %00000000
-end
-    goto __End_Bee_Death_Anim_Frames
-__Bee_Death_Frame_3
-    AUDC1 = 8 : AUDV1 = 2 : AUDF1 = 28
-    player0:
-    %10000001
-    %01000010
-    %00100100
-    %00000000
-    %00000000
-    %11100111
-    %00000000
-    %00000000
-    %00100100
-    %01000010
-    %10000001
-end
-__End_Bee_Death_Anim_Frames
-    if _bubble_pop_countdown then goto __Reset_Listener
-    AUDV1 = 0
-    if _player_lives < 1 then goto __Game_Over_Loop
-    _Bit5_Bee_Death_Sequence{5} = 0
+    if _Bit5_Bee_Death_Sequence{5} then gosub __Bee_Death_Anim_Sub
+
     ; we can just continue to the "lives left" screen from here as long
     ; as I don't fuck up and put anything else between here
-__Skip_Bee_Death_Anim
 
-    if !_Bit4_Bee_Death{4} then goto __Skip_Bee_Death
-    _player_flicker = 0
-    NUSIZ1 = $30
-    player2y = 200
-    player3y = 200
-    player4y = 200
-    missile0y = 200
-    missile1y = 200
-    bally = 200
-    player4y = 200
-    ; reusing this var because I'm running out lol
-    _bubble_pop_countdown = _bubble_pop_countdown - 1
-
-    ;  Defines shape of player1 sprite (a one)
-    if _player_lives > 1 then goto __Skip_One
-    player1:
-    %11111110
-    %00010000
-    %00010000
-    %00010000
-    %10010000
-    %01010000
-    %00110000
-end
-
-    goto __Skip_Two
-__Skip_One
-
-    ;  Defines shape of player1 sprite (a two)
-    player1:
-    %11111110
-    %10000000
-    %10000000
-    %11111110
-    %00000010
-    %00000010
-    %11111110
-end
-
-__Skip_Two
-
-    player0x = 60
-    player0y = 55
-    player1x = player0x + 25
-    player1y = player0y - 5
-
-    if _bubble_pop_countdown then goto __Reset_Listener
-    player1x = 200
-    player1y = 200
-    _Bit4_Bee_Death{4} = 0
-    _Bit6_Life_Loss_Reset{6} = 1
-    goto __Reset_Listener
-__Skip_Bee_Death
+    if _Bit4_Bee_Death{4} then gosub __Bee_Death_Sub
 
     if _player_hit_countdown then _bubble_pop_countdown = 0 : _player_hit_countdown = _player_hit_countdown - 1 : AUDC0 = 8 : AUDV0 = 2 : AUDF0 = _player_hit_countdown : goto __End_Mite_Sound
     if _bubble_pop_countdown then _mite_hit_countdown = 0 : _bubble_pop_countdown = _bubble_pop_countdown - 1 : AUDC0 = 8 : AUDV0 = 8 : AUDF0 = 5 - _bubble_pop_countdown : goto __End_Mite_Sound
@@ -711,8 +614,177 @@ __Reset_Listener
     if _Bit0_Reset_Restrainer{0} then goto gameloop
     goto __Start_Restart
 
+__Game_Over_Loop
+    drawscreen
+    ; mute sounds
+    AUDC0 = 0 : AUDV0 = 0 : AUDF0 = 0
+    AUDC0 = 0 : AUDV0 = 0 : AUDF0 = 0
+    ; wait for a button press to return to gameplay.
+    if joy0fire then goto __Start_Restart
+    ; reset check
+    if !switchreset then _Bit0_Reset_Restrainer{0} = 0 : goto __Game_Over_Loop
+    if _Bit0_Reset_Restrainer{0} then goto __Game_Over_Loop
+    goto __Start_Restart
 
-    ;********************************************************
+__Stinger_Sub
+    ; ***********************************
+    ; Player control logic
+    ; ***********************************
+    if joy0left && player0x > 20 then player0x = player0x - 1
+    if joy0right && player0x < 130 then player0x = player0x + 1
+
+    ; ****************************************************
+    ; Stinger movement logic
+    ;
+    ; The stinger is composed of the ball and missile0.
+    ; This is because using a player sprite would make
+    ; collision detection much more annoying.
+    ; ****************************************************
+    if _stinger_in_play = 0 then goto __End_Stinger_Movement
+    missile0y = missile0y - 2 : bally = bally - 2
+    if missile0y < 5 then _stinger_in_play = 0 : missile0x = 200 : ballx = 200 : missile0y = 200 : bally = 200
+    goto __End_Stinger
+__End_Stinger_Movement
+
+    if !joy0fire then goto __End_Stinger
+    _stinger_in_play = 1
+    missile0x = player0x + 3
+    missile0y = player0y - 8
+    ballx = player0x + 4
+    bally = player0y - 9
+
+__End_Stinger
+    return
+
+__Bee_Death_Anim_Sub
+    AUDV0 = 0
+    _bubble_pop_countdown = _bubble_pop_countdown - 1
+    if _bubble_pop_countdown < 40 then goto __Bee_Death_Frame_2
+    AUDC1 = 4 : AUDV1 = 4 : AUDF1 = 10
+    player0:
+    %00011000
+    %00111100
+    %01000010
+    %11111111
+    %01000010
+    %00111100
+    %00111100
+    %00111100
+    %01000010
+end
+    goto __End_Bee_Death_Anim_Frames
+__Bee_Death_Frame_2
+    if _bubble_pop_countdown < 20 then goto __Bee_Death_Frame_3
+    AUDC1 = 4 : AUDV1 = 4 : AUDF1 = 15
+    player0:
+    %00111100
+    %00111100
+    %00000000
+    %00000000
+    %00000000
+    %00000000
+end
+    goto __End_Bee_Death_Anim_Frames
+__Bee_Death_Frame_3
+    AUDC1 = 8 : AUDV1 = 2 : AUDF1 = 28
+    player0:
+    %10000001
+    %01000010
+    %00100100
+    %00000000
+    %00000000
+    %11100111
+    %00000000
+    %00000000
+    %00100100
+    %01000010
+    %10000001
+end
+__End_Bee_Death_Anim_Frames
+    if _bubble_pop_countdown then pop : goto __Reset_Listener
+    AUDV1 = 0
+    if _player_lives < 1 then pop : goto __Game_Over_Loop
+    _Bit5_Bee_Death_Sequence{5} = 0
+    return
+
+__Bee_Death_Sub
+    _stinger_in_play = 0 : missile0x = 200 : ballx = 200 : missile0y = 200 : bally = 200
+    _player_flicker = 0
+    NUSIZ1 = $30
+    player2y = 200
+    player3y = 200
+    player4y = 200
+    missile0y = 200
+    missile1y = 200
+    bally = 200
+    player4y = 200
+    ; reusing this var because I'm running out lol
+    _bubble_pop_countdown = _bubble_pop_countdown - 1
+
+    ;  Defines shape of player1 sprite (a one)
+    if _player_lives > 1 then goto __Skip_One
+    player1:
+    %11111110
+    %00010000
+    %00010000
+    %00010000
+    %10010000
+    %01010000
+    %00110000
+end
+
+    goto __Skip_Two
+__Skip_One
+
+    ;  Defines shape of player1 sprite (a two)
+    player1:
+    %11111110
+    %10000000
+    %10000000
+    %11111110
+    %00000010
+    %00000010
+    %11111110
+end
+
+__Skip_Two
+
+    player0x = 65
+    player0y = 55
+    player1x = player0x + 25
+    player1y = player0y - 5
+
+    if _bubble_pop_countdown then pop : goto __Reset_Listener
+    player1x = 200
+    player1y = 200
+    _Bit4_Bee_Death{4} = 0
+    _Bit6_Life_Loss_Reset{6} = 1
+    pop : goto __Reset_Listener
+    ; guess it shouldn't ever be possible to get here? lol?
+    return
+
+    ; data table containing values to set NUSIZ2 to after a collision with the stinger
+    ; depending on which sprite copy was hit
+    data ns2
+    $20, $20, $20, $21, $20, $22, $21, $23
+end
+
+    ; data table containing values to offset player2 position by depending on
+    ; if any of the sprite dupes have been shot so far
+    data pos2
+    $00, $20, $10, $10, $00, $00, $00, $00
+end
+    ; ******************************
+    ; We're bankswitching, baby!
+    ; This is pretty much just here
+    ; to hold graphics and things of
+    ; that nature, but it sure saves
+    ; a lot of space for bank 1
+    ; ******************************
+    bank 2
+    inline 6lives.asm
+
+        ;********************************************************
     ; Here's where Stage 2 game logic goes
     ; You will probably notice some duplicated
     ; code. That's because I thought it would
@@ -881,6 +953,7 @@ end
 
 __End_Boss_Anim
 
+    if _bit3_enemy_state_bools_boss_dead{3} then goto __Spider_Skip
     ; Spider grunt sprite
     player3:
     %10011001
@@ -893,6 +966,27 @@ __End_Boss_Anim
     %00000001
 end
 
+__Spider_Skip
+
+    if _bubble_pop_countdown < 6 || !_bit3_enemy_state_bools_boss_dead{3} then goto __Skip_Sprite_Swap
+    player2:
+    %01111110
+    %11111111
+    %11011011
+    %10111101
+    %01111110
+end
+
+    player3:
+    %00111100
+    %01011010
+    %10100101
+    %10100101
+    %01000010
+    %00100100
+end
+
+__Skip_Sprite_Swap
 
     ; Boss projectile sprite
     player4:
@@ -903,6 +997,14 @@ end
     %11011111
     %01101110
     %00111100
+end
+    ; Crown Sprite
+    player5:
+    %01111110
+    %11111111
+    %10100101
+    %01011010
+    %00011000
 end
 
     ; color of playfield and ball (yellow, beehive)
@@ -918,8 +1020,11 @@ end
     COLUP3 = $4C
     ; color of player4 (boss attack, white)
     COLUP4 = $0E
+    ; color of player5 (crown, same as bee)
+    COLUP5 = $1C
     NUSIZ2 = $35
     if _clock & 1 then NUSIZ3 = $30 else NUSIZ3 = $30 | 8
+    if _bit3_enemy_state_bools_boss_dead{3} then NUSIZ3 = $35 : COLUP3 = $00
     NUSIZ4 = $30
 
     ; color of lives indicator (yellow)
@@ -933,11 +1038,73 @@ end
     if !_Bit7_Stage_2_Init{7} then goto __Skip_Init
     _bubble_pop_countdown = 0
     _bitop_enemy_state_bools = 0
-    if player2y < 30 then player2y = player2y + (_clock & 1) : goto __Reset_Listener
+    if player2y < 30 then player2y = player2y + (_clock & 1) : goto __Reset_Listener bank1
     _Bit7_Stage_2_Init{7} = 0
     _clock = 1
     _Bit3_Stage_2{3} = 1
 __Skip_Init
+
+    ;************************************************
+    ; Reset character positions and things of that
+    ; nature after a player respawns
+    ;************************************************
+    if !_Bit6_Life_Loss_Reset{6} then goto __Skip_Life_Reset_Stage_2
+    _clock = 1
+    _player_hit_countdown = 0
+    _stinger_in_play = 0 : missile0x = 200 : ballx = 205 : missile0y = 200 : bally = 205
+    bally = 200
+    missile0y = 200
+    if !_bit5_enemy_state_bools_boss_low_dead{5} then player2x = 65 : player2y = 44 else player2x = 77 : player2y = 12
+    player3y = 200 : player3x = 200
+    _bit2_enemy_state_bools_spider_dead{2} = 1
+    player0x = 70
+    player0y = 90
+    lives = 96
+    _Bit6_Life_Loss_Reset{6} = 0
+__Skip_Life_Reset_Stage_2
+
+    ;*********************************************
+    ; little death anim/sfx for when the Bee dies
+    ;*********************************************
+    if _Bit5_Bee_Death_Sequence{5} then gosub __Bee_Death_Anim_Sub bank1
+
+    ; we can just continue to the "lives left" screen from here as long
+    ; as I don't fuck up and put anything else between here
+
+    if _Bit4_Bee_Death{4} then gosub __Bee_Death_Sub bank1
+
+    if !_bit3_enemy_state_bools_boss_dead{3} then goto __Skip_Boss_Death
+    player4x = 200 : player4y = 200
+    ; reusing this again to save vars
+    if !_boss_hit_countdown then _bubble_pop_countdown = _bubble_pop_countdown + 1 : _boss_hit_countdown = 20
+    
+    if _bubble_pop_countdown > 5 then goto __Explode_Him_Stage_2
+    if _boss_hit_countdown then _boss_hit_countdown = _boss_hit_countdown - 1 : AUDC1 = 8 : AUDV1 = 2 : AUDF1 = 20 - _boss_hit_countdown else AUDV1 = 0
+    goto __Reset_Listener bank1
+__Explode_Him_Stage_2
+    _bug_hit_countdown = _bug_hit_countdown - 1
+    AUDC1 = 8 : AUDV1 = 2 : AUDF1 = 20 - _boss_hit_countdown
+    if _bubble_pop_countdown > 5 && _bubble_pop_countdown < 7 then player3x = player2x : player3y = player2y + 5 : player5x = player2x : player5y = player2y
+    if player2y > 0 then player2y = player2y - 1
+    if player3y < 100 then player3y = player3y + 2
+    if player2y > 0 || player3y < 100 then goto __Reset_Listener bank1
+__Collect_Crown
+    AUDV1 = 0
+    if player0x < player5x - 8 then player0x = player0x + 1 : goto __Reset_Listener bank1
+    if player0x > player5x - 8 then player0x = player0x - 1 : goto __Reset_Listener bank1
+    if player0y > player5y - 2 then player0y = player0y - 1 : goto __Reset_Listener bank1
+    if _fanfare_countdown > 90 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 25 : goto __Reset_Listener bank1
+    if _fanfare_countdown > 80 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 26 : goto __Reset_Listener bank1
+    if _fanfare_countdown > 70 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 25 : goto __Reset_Listener bank1
+    if _fanfare_countdown > 0 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 20 : goto __Reset_Listener bank1
+    AUDV0 = 0
+    player3x = 200 : player3y = 200
+    player2x = 75 : player2y = 0
+    ; just in case
+    _Bit3_Stage_2{3} = 0
+    ; todo add loop bool
+    goto __Reset_Listener bank1
+__Skip_Boss_Death
 
     if _player_hit_countdown then _spider_hit_countdown = 0 : _player_hit_countdown = _player_hit_countdown - 1 : AUDC0 = 8 : AUDV0 = 2 : AUDF0 = _player_hit_countdown : goto __End_Spider_Sound
     if _spider_hit_countdown then _spider_hit_countdown = _spider_hit_countdown - 1 : AUDC0 = 7 : AUDV0 = 14 : AUDF0 = 5 - _spider_hit_countdown else AUDV0 = 0
@@ -951,7 +1118,7 @@ __End_Spider_Sound
     ; like above, we're gonna try to make the edge cases the very last
     ; things we check. If there's only one thing it could've hit, that's
     ; what it hit!
-    if bally <= player2y then goto __Boss_Collision
+    if bally <= player2y + 1 then goto __Boss_Collision
     if player4y > 199 && _bit2_enemy_state_bools_spider_dead{2} then goto __Boss_Collision
     if player4y < 90 && !_bit2_enemy_state_bools_spider_dead{2} then goto __Annoying_Check
     if player4y > 199 && !_bit2_enemy_state_bools_spider_dead{2} then goto __Spider_Boss_Check
@@ -980,8 +1147,12 @@ __Spider_Collision
 __Boss_Collision
     _boss_hit_countdown = 20
     _boss_hits = _boss_hits + 1
+    if _boss_hits > 11 && !_bit4_enemy_state_bools_boss_mid_dead{4} then _bit4_enemy_state_bools_boss_mid_dead{4} = 1 : score = score + 250
     ; could make this fancier, but for now initiating phase 3 as a one-liner
-    if _boss_hits > 23 && !_bit5_enemy_state_bools_boss_low_dead{5} then _bit5_enemy_state_bools_boss_low_dead{5} = 1 : player2x = 77 : player2y = 12 : player3x = 200 : player3y = 200
+    if _boss_hits > 23 && !_bit5_enemy_state_bools_boss_low_dead{5} then _bit5_enemy_state_bools_boss_low_dead{5} = 1 : player2x = 77 : player2y = 12 : player3x = 200 : player3y = 200 : score = score + 500
+    ; if we beat the boss, we will immediately go to the victory sequence. If he got the last hit against the player at the same time, the tie goes to the player. :)
+    ; killing the boss is the only thing that increments the ones digit of the score, so players can more easily track how many loops they've completed.
+    if _boss_hits > 36 then _bit3_enemy_state_bools_boss_dead{3} = 1 : score = score + 1001 : _fanfare_countdown = 100 : goto __Reset_Listener bank1
 __Reset_Stinger_Stage_2
     _stinger_in_play = 0 : missile0x = 200 : ballx = 205 : missile0y = 200 : bally = 205
 __Skip_Stage_2_Collision
@@ -989,11 +1160,18 @@ __Skip_Stage_2_Collision
     if collision(player0, missile1) && !_player_flicker then lives = lives - 32 : missile1x = 200 : missile1y = 200 : _player_flicker = 120 : _player_hit_countdown = 10
     if collision(player0, player1) && !_player_flicker then lives = lives - 32 : player4y = 200 : _player_flicker = 120 : _player_hit_countdown = 10
 
-    gosub __Stinger_Sub
+    if lives < 32 then _player_lives = _player_lives - 1 : _bubble_pop_countdown = 60 : _Bit4_Bee_Death{4} = 1 : _Bit5_Bee_Death_Sequence{5} = 1 : goto __Reset_Listener bank1
+
+    gosub __Stinger_Sub bank1
 
     if missile1y < 90 then missile1y = missile1y + 1 else missile1y = 200
     if player4y > 90 then player4y = 200 : goto __Skip_Boss_Attack
-    if _clock & 1 then player4y = player4y + 3
+    if !(_clock & 1) then goto __Skip_Boss_Attack
+    player4y = player4y + 3
+    ; this is equivalent to some sort of modulo I think
+    if !(_clock & %00000110) then goto __Skip_Boss_Attack
+    if player4x < player0x + 3 then player4x = player4x + 1
+    if player4x > player0x + 3 then player4x = player4x - 1
 __Skip_Boss_Attack
 
     ; ********************************************
@@ -1021,18 +1199,17 @@ __End_Spider_Movement
 __End_Spider
 
     if _boss_hits < 24 then goto __Early_Phases
-    if _boss_corner_countdown then _boss_corner_countdown = _boss_corner_countdown - 1 : goto __Reset_Listener
+    if _boss_corner_countdown then _boss_corner_countdown = _boss_corner_countdown - 1 : goto __Reset_Listener bank1
     ; move in a diamond shape and shoot at each corner
     temp5 = (rand & %00000010)
     temp4 = (rand & %01000000)
-    if !_bit1_enemy_state_bools_boss_dir{1} && player2x < 48 then player2x = 48 : _boss_corner_countdown = 20 : player4x = player2x + 3 : player4y = player2y : _bit1_enemy_state_bools_boss_dir{1} = 1 : _bit6_enemy_state_bools_boss_dir_y ^ temp4 : goto __Reset_Listener
-    if _bit1_enemy_state_bools_boss_dir{1} && player2x > 106 then player2x = 106 : _boss_corner_countdown = 20 : player4x = player2x + 3 : player4y = player2y : _bit1_enemy_state_bools_boss_dir{1} = 0 : _bit6_enemy_state_bools_boss_dir_y ^ temp4 : goto __Reset_Listener
-    if _bit6_enemy_state_bools_boss_dir_y{6} && player2y > 70 then player2y = 70 : _boss_corner_countdown = 20 : player4x = player2x + 3 : player4y = player2y : _bit6_enemy_state_bools_boss_dir_y{6} = 0 : _bit1_enemy_state_bools_boss_dir ^ temp5 : goto __Reset_Listener
-    if !_bit6_enemy_state_bools_boss_dir_y{6} && player2y < 12 then player2y = 12 : _boss_corner_countdown = 20 : player4x = player2x + 3 : player4y = player2y : _bit6_enemy_state_bools_boss_dir_y{6} = 1 : _bit1_enemy_state_bools_boss_dir ^ temp5 : goto __Reset_Listener
-    ;if _boss_corner_countdown then goto __Reset_Listener
+    if !_bit1_enemy_state_bools_boss_dir{1} && player2x < 48 then player2x = 48 : _boss_corner_countdown = 20 : player4x = player2x + 3 : player4y = player2y : _bit1_enemy_state_bools_boss_dir{1} = 1 : _bit6_enemy_state_bools_boss_dir_y ^ temp4 : goto __Reset_Listener bank1
+    if _bit1_enemy_state_bools_boss_dir{1} && player2x > 106 then player2x = 106 : _boss_corner_countdown = 20 : player4x = player2x + 3 : player4y = player2y : _bit1_enemy_state_bools_boss_dir{1} = 0 : _bit6_enemy_state_bools_boss_dir_y ^ temp4 : goto __Reset_Listener bank1
+    if _bit6_enemy_state_bools_boss_dir_y{6} && player2y > 70 then player2y = 70 : _boss_corner_countdown = 20 : player4x = player2x + 3 : player4y = player2y : _bit6_enemy_state_bools_boss_dir_y{6} = 0 : _bit1_enemy_state_bools_boss_dir ^ temp5 : goto __Reset_Listener bank1
+    if !_bit6_enemy_state_bools_boss_dir_y{6} && player2y < 12 then player2y = 12 : _boss_corner_countdown = 20 : player4x = player2x + 3 : player4y = player2y : _bit6_enemy_state_bools_boss_dir_y{6} = 1 : _bit1_enemy_state_bools_boss_dir ^ temp5 : goto __Reset_Listener bank1
     if _bit1_enemy_state_bools_boss_dir{1} then player2x = player2x + 1 else player2x = player2x - 1
     if _bit6_enemy_state_bools_boss_dir_y{6} then player2y = player2y + 1 else player2y = player2y - 1
-    goto __Reset_Listener
+    goto __Reset_Listener bank1
 __Early_Phases
 
     ; *************************************
@@ -1049,67 +1226,4 @@ _Skip_Boss_Move
     temp5 = rand
     if _clock > 29 && _clock < 31 && temp5 < 150 && player4y > 90 then player4x = player2x : player4y = player2y
 __End_Boss_Move
-    goto __Reset_Listener
-
-__Game_Over_Loop
-    drawscreen
-    ; mute sounds
-    AUDC0 = 0 : AUDV0 = 0 : AUDF0 = 0
-    AUDC0 = 0 : AUDV0 = 0 : AUDF0 = 0
-    ; wait for a button press to return to gameplay.
-    if joy0fire then goto __Start_Restart
-    ; reset check
-    if !switchreset then _Bit0_Reset_Restrainer{0} = 0 : goto __Game_Over_Loop
-    if _Bit0_Reset_Restrainer{0} then goto __Game_Over_Loop
-    goto __Start_Restart
-
-__Stinger_Sub
-    ; ***********************************
-    ; Player control logic
-    ; ***********************************
-    if joy0left && player0x > 20 then player0x = player0x - 1
-    if joy0right && player0x < 130 then player0x = player0x + 1
-
-    ; ****************************************************
-    ; Stinger movement logic
-    ;
-    ; The stinger is composed of the ball and missile0.
-    ; This is because using a player sprite would make
-    ; collision detection much more annoying.
-    ; ****************************************************
-    if _stinger_in_play = 0 then goto __End_Stinger_Movement
-    missile0y = missile0y - 2 : bally = bally - 2
-    if missile0y < 5 then _stinger_in_play = 0 : missile0x = 200 : ballx = 200 : missile0y = 200 : bally = 200
-    goto __End_Stinger
-__End_Stinger_Movement
-
-    if !joy0fire then goto __End_Stinger
-    _stinger_in_play = 1
-    missile0x = player0x + 3
-    missile0y = player0y - 8
-    ballx = player0x + 4
-    bally = player0y - 9
-
-__End_Stinger
-    return
-
-    ; data table containing values to set NUSIZ2 to after a collision with the stinger
-    ; depending on which sprite copy was hit
-    data ns2
-    $20, $20, $20, $21, $20, $22, $21, $23
-end
-
-    ; data table containing values to offset player2 position by depending on
-    ; if any of the sprite dupes have been shot so far
-    data pos2
-    $00, $20, $10, $10, $00, $00, $00, $00
-end
-    ; ******************************
-    ; We're bankswitching, baby!
-    ; This is pretty much just here
-    ; to hold graphics and things of
-    ; that nature, but it sure saves
-    ; a lot of space for bank 1
-    ; ******************************
-    bank 2
-    inline 6lives.asm
+    goto __Reset_Listener bank1
