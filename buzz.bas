@@ -1,20 +1,25 @@
     includesfile multisprite_bankswitch.inc
     set romsize 8k
     set kernel multisprite
-    set kernel_options pfcolors
     set optimization speed
     set optimization inlinerand
     set tv ntsc
 
+    ; z is used to determine if we are restarting the game entirely or just looping from beating stage 2
+    ; we can't assume clean RAM, so clear it on startup. w is used to track lives, so similarly
+    ; we will not reset it every time.
+    z = 0
+    w = 0
 __Start_Restart
 
     ; clear audio
     AUDV0 = 0 : AUDV1 = 0
 
-    ;  Clears all normal variables.
+    ;  Clears all normal variables. w and z are used for player life state
+    ;  so they are only reset conditionally below.
     a = 0 : b = 0 : c = 0 : d = 0 : e = 0 : f = 0 : g = 0 : h = 0 : i = 0
     j = 0 : k = 0 : l = 0 : m = 0 : n = 0 : o = 0 : p = 0 : q = 0 : r = 0
-    s = 0 : t = 0 : u = 0 : v = 0 : w = 0 : x = 0 : y = 0 : z = 0
+    s = 0 : t = 0 : u = 0 : v = 0 : x = 0 : y = 0
 
     ;***************************************************************
     ; Some general game state bools
@@ -27,7 +32,7 @@ __Start_Restart
     dim _Bit5_Bee_Death_Sequence = r
     dim _Bit6_Life_Loss_Reset = r
     dim _Bit7_Stage_2_Init = r
-    _Bit3_Stage_2{3} = 1
+    if _game_loop_reset then _Bit1_Fire_Starter{1} = 0 : _Bit2_Intro_Sequence{2} = 1
 
     ;***************************************************************
     ;  Vars for determining various enemy movement states.
@@ -53,6 +58,8 @@ __Start_Restart
 
     dim _boss_corner_countdown = y
 
+    dim _game_loop_reset = z
+
     ; some variables for sounds (could definitely optimize this)
     dim _bubble_pop_countdown = s
     dim _bug_hit_countdown = t
@@ -77,17 +84,17 @@ __Start_Restart
     dim _boss_hits = p
 
 
-    ; background color (black)
+    ; background color (brown)
     COLUBK = $F4
     ; two-pixel wide ball and normal, and players move under playfield
     CTRLPF = $15
     scorecolor = $1C
     ; reset score
-    score = 0
+    if !_game_loop_reset then score = 0
 
     ; life counter
     dim _player_lives = w
-    _player_lives = 3
+    if !_game_loop_reset then _player_lives = 3
 
     ; index into arrays that determine player2 (bubble) visibility state
     dim _ns2_index = h
@@ -102,9 +109,10 @@ __Start_Restart
     ; variables for which game mode we're on and how long it's been since we pushed select
     dim _Select_Counter = m
 
-    ; best practice dictates that if mode select is open for 30 seconds or so, return to Idle state
+    ; these are used for animation and sound effects on stage 2 and 1 respectively
+    ; because they are never used at the same time, it's safe to use the same var
     dim _Boss_Anim_Counter = c
-    dim _Mode_Select_Idle_Seconds = d
+    dim _Intro_Sequence_Counter = c
 
     ; variable for counting how long since you lost a life
     dim _life_loss_counter = f
@@ -120,18 +128,36 @@ __Start_Restart
     player0x = 70
     player0y = 90
 
-    ; initial position of missile1 (offscreen)
+    ; crown only appears on win
+    player5x = 200
+    player5y = 200
+
+    ; move all enemies and missiles off screen on restart
     missile1x = 200
     missile1y = 200
+
+    ballx = 200
+    bally = 200
+    missile0x = 200
+    missile0y = 200
+
+    player2x = 150
+    player2y = 150
+
+    player3x = 150
+    player3y = 150
+
+    player4x = 150
+    player4y = 150
 
     pfheight = 1
 
     ; initiate lives to 3 and use the compact spacing
     ; lives vars are used by the 6lives minikernel included above
     ; we are actually using it as a health bar for this game
-    ; and tracking lives separately
+    ; and tracking lives separately.
     dim lives_compact = 1
-    lives = 96
+    if !_game_loop_reset then lives = 96
 
     ; set lives sprite to a little heart
     lives:
@@ -143,43 +169,6 @@ __Start_Restart
     %01101100
     %00000000
     %00000000
-end
-
-    ;  Defines shape of player2 sprite (bubble)
-    player2:
-    %00111100
-    %01111110
-    %11111111
-    %11111111
-    %11111111
-    %11011111
-    %01101110
-    %00111100
-end
-
-    ; Defines shape of player3 sprite (bad bug)
-    player3:
-    %0110000
-    %0100110
-    %0100010
-    %0011110
-    %0011100
-    %0111110
-    %1111111
-    %1011101
-    %0010100
-    %0100010
-    %0100010
-    %0010100
-end
-
-    ; Defines shape of player4 sprite (mite)
-    player4:
-    %10001
-    %01110
-    %11111
-    %01110
-    %10001
 end
 
  playfield:
@@ -229,6 +218,8 @@ X...............
 ................
 ................
 end
+
+    _game_loop_reset = 0
  
 gameloop
 
@@ -298,6 +289,49 @@ __End_P0_Anim
 
     if _Bit3_Stage_2{3} || _Bit7_Stage_2_Init{7} then goto __Stage_2_Start bank2
 
+    ; we are wasting PRECIOUS CYCLES defining enemy sprites in the game loop because they change
+    ; depending on the stage
+
+    ;  Defines shape of player2 sprite (bubble)
+    player2:
+    %00111100
+    %01111110
+    %11111111
+    %11111111
+    %11111111
+    %11011111
+    %01101110
+    %00111100
+end
+
+    if _bit5_enemy_state_bools_bug_dead{5} then goto __Skip_Bug_Definition
+    ; Defines shape of player3 sprite (bad bug)
+    player3:
+    %0110000
+    %0100110
+    %0100010
+    %0011110
+    %0011100
+    %0111110
+    %1111111
+    %1011101
+    %0010100
+    %0100010
+    %0100010
+    %0010100
+end
+
+__Skip_Bug_Definition
+
+    ; Defines shape of player4 sprite (mite)
+    player4:
+    %10001
+    %01110
+    %11111
+    %01110
+    %10001
+end
+
     ; color of playfield and ball (yellow, beehive)
     COLUPF = $18
     ; color of player (and missile) 0 (yellow, bee)
@@ -312,7 +346,7 @@ __End_P0_Anim
     ; color of player 2 (cyan, bubble)
     COLUP2 = $AE
     ; color of player 3 (cyan if protected, red if not, bad bug)
-    if !_bit4_enemy_state_bools_bubble_dead{4} then COLUP3 = $CC else COLUP3 = $48
+    if !_bit4_enemy_state_bools_bubble_dead{4} then COLUP3 = $AC else COLUP3 = $48
     ; color of player 4 (black, mite)
     COLUP4 = $00
     NUSIZ4 = $30
@@ -342,6 +376,7 @@ __End_P0_Anim
     player3y = 32 : player3x = 65
     _bit6_enemy_state_bools_mite_dead{6} = 1
     _bit3_enemy_state_bools_mite_attack{3} = 0
+    player4x = 200 : player4y = 200
     player0x = 70
     player0y = 90
     lives = 96
@@ -357,18 +392,25 @@ __Skip_Life_Reset
     ;*************************************************
     if !_Bit1_Fire_Starter{1} && joy0fire then _Bit2_Intro_Sequence{2} = 1
     if !_Bit2_Intro_Sequence{2} then goto __Skip_Intro
+    _Intro_Sequence_Counter = _Intro_Sequence_Counter + 1
+    if _Intro_Sequence_Counter > 40 then _Intro_Sequence_Counter = 0
+    if _Intro_Sequence_Counter > 20 then temp3 = 19 else temp3 = 18
+    AUDC1 = 7 : AUDV1 = 4 : AUDF1 = temp3
     NUSIZ2 = ns2[_ns2_index]
-    if !_Bit1_Fire_Starter{1} then _Bit1_Fire_Starter{1} = 1 : player2y = 44 : player2x = 5 : player3y = 32 : player3x = 110
+    if !_Bit1_Fire_Starter{1} then _Bit1_Fire_Starter{1} = 1 : player2y = 44 : player2x = 0 : player3y = 32 : player3x = 125
     if player2x < 65 then player2x = player2x + 1
     if player3x > 65 && _clock & 1 then player3x = player3x - 1 
     if player2x = 65 && player3x = 65 then _Bit2_Intro_Sequence{2} = 0 : _clock = 1
     goto __Reset_Listener
 __Skip_Intro
-    if !_Bit1_Fire_Starter{1} then goto gameloop
+    if !_Bit1_Fire_Starter{1} then goto __Reset_Listener
 
     ; something that could possibly be described as music
     if !_bit5_enemy_state_bools_bug_dead{5} then goto __Skip_Stage1_Win
+    ; just in case
+    _stinger_in_play = 0 : missile0x = 200 : ballx = 205 : missile0y = 200 : bally = 205
     player4x = 200 : player4y = 200
+    player2x = 200 : player2y = 200
     missile1x = 200 : missile1y = 200
     ; reusing this again to save vars
     if !_bug_hit_countdown then _bubble_pop_countdown = _bubble_pop_countdown + 1 : _bug_hit_countdown = 20
@@ -383,15 +425,18 @@ __Skip_Intro
     %0011110
     %0011100
     %0111110
-    %1111111
+    %1111111 
     %1000001
+    %0000000
+    %0000000
+    %0000000
 end
     goto __Reset_Listener
 __Explode_Him
     _bug_hit_countdown = _bug_hit_countdown - 1
     if _bubble_pop_countdown > 6 then goto __Fanfare
     AUDC1 = 8 : AUDV1 = 2 : AUDF1 = 28
-    player3:
+    player3: 
     %0100100
     %1001010
     %0100010
@@ -410,8 +455,6 @@ __Fanfare
     AUDV0 = 0
     player3x = 200 : player3y = 200
     player2x = 75 : player2y = 0
-    ; just in case
-    _stinger_in_play = 0 : missile0x = 200 : ballx = 205 : missile0y = 200 : bally = 205
     _Bit7_Stage_2_Init{7} = 1
     goto __Reset_Listener
 __Skip_Stage1_Win
@@ -495,7 +538,7 @@ __Bug_Collision
     _player3_hits = _player3_hits + 1
     goto __Reset_Missile
 __Mite_Collision
-    score = score + 5
+    score = score + 10
     _mite_hit_countdown = 5
     _player4_hits = _player4_hits + 1 : player4y = 200 : _bit6_enemy_state_bools_mite_dead{6} = 1 : _bit3_enemy_state_bools_mite_attack{3} = 0
 __Reset_Missile
@@ -547,11 +590,11 @@ __End_Bubble_Shoot
 
 __End_Bubble
 
-    ; ********************************************
+    ; *********************************************
     ; Player3 (Goon bug) movement and fire behavior
-    ; ********************************************
+    ; *********************************************
     if _bit4_enemy_state_bools_bubble_dead{4} && _player3_hits > 15 then score = score + 500 : _bit5_enemy_state_bools_bug_dead{5} = 1 : _fanfare_countdown = 100 : _bubble_pop_countdown = 0 : goto __Reset_Listener
-    if !_bit4_enemy_state_bools_bubble_dead{4} && _player3_hits > 50 then score = score + 1000 : _bit5_enemy_state_bools_bug_dead{5} = 1 : _fanfare_countdown = 100 : _ _bubble_pop_countdown = 0 : goto __Reset_Listener
+    if !_bit4_enemy_state_bools_bubble_dead{4} && _player3_hits > 50 then score = score + 1000 : _bit4_enemy_state_bools_bubble_dead{4} = 1 : _bit5_enemy_state_bools_bug_dead{5} = 1 : _fanfare_countdown = 100 : _bubble_pop_countdown = 0 : goto __Reset_Listener
     if _bit5_enemy_state_bools_bug_dead{5} then player3x = 200 : player3y = 200 : goto __Reset_Listener
     ; only move the bug every other frame
     if _clock & 1 then goto __Skip_Frame
@@ -615,6 +658,13 @@ __Reset_Listener
     goto __Start_Restart
 
 __Game_Over_Loop
+    player0y = 200
+    player1y = 200
+    player2y = 200
+    player3y = 200
+    player5y = 200
+    ; fills in the side boundaries with color
+    PF0 = %11110000
     drawscreen
     ; mute sounds
     AUDC0 = 0 : AUDV0 = 0 : AUDF0 = 0
@@ -625,6 +675,13 @@ __Game_Over_Loop
     if !switchreset then _Bit0_Reset_Restrainer{0} = 0 : goto __Game_Over_Loop
     if _Bit0_Reset_Restrainer{0} then goto __Game_Over_Loop
     goto __Start_Restart
+
+    ; *******************************************
+    ; Below are some subroutines that are useful
+    ; for both stages. This is expensive in terms
+    ; of cycles, but I checked the debugger and
+    ; I am extremely fine in that regard.
+    ; *******************************************
 
 __Stinger_Sub
     ; ***********************************
@@ -660,7 +717,7 @@ __Bee_Death_Anim_Sub
     AUDV0 = 0
     _bubble_pop_countdown = _bubble_pop_countdown - 1
     if _bubble_pop_countdown < 40 then goto __Bee_Death_Frame_2
-    AUDC1 = 4 : AUDV1 = 4 : AUDF1 = 10
+    AUDC1 = 6 : AUDV1 = 5 : AUDF1 = 2
     player0:
     %00011000
     %00111100
@@ -675,7 +732,7 @@ end
     goto __End_Bee_Death_Anim_Frames
 __Bee_Death_Frame_2
     if _bubble_pop_countdown < 20 then goto __Bee_Death_Frame_3
-    AUDC1 = 4 : AUDV1 = 4 : AUDF1 = 15
+    AUDC1 = 6 : AUDV1 = 5 : AUDF1 = 3
     player0:
     %00111100
     %00111100
@@ -686,7 +743,7 @@ __Bee_Death_Frame_2
 end
     goto __End_Bee_Death_Anim_Frames
 __Bee_Death_Frame_3
-    AUDC1 = 8 : AUDV1 = 2 : AUDF1 = 28
+    AUDC1 = 8 : AUDV1 = 5 : AUDF1 = 28
     player0:
     %10000001
     %01000010
@@ -758,9 +815,25 @@ __Skip_Two
     player1x = 200
     player1y = 200
     _Bit4_Bee_Death{4} = 0
+    _boss_hit_countdown = 0
+    _spider_hit_countdown = 0
+    _player_hit_countdown = 0
+    _bubble_pop_countdown = 0
     _Bit6_Life_Loss_Reset{6} = 1
     pop : goto __Reset_Listener
     ; guess it shouldn't ever be possible to get here? lol?
+    return
+
+__Fanfare_Sub_Stage_2
+    ; there ain't enough room on bank 2 for music lol
+    ; at least not in the probably dumbassed way I'm implementing it
+    if _fanfare_countdown > 130 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 25 : return
+    if _fanfare_countdown > 120 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 26 : return
+    if _fanfare_countdown > 110 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 25 : return
+    if _fanfare_countdown > 100 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 20 : return
+    if _fanfare_countdown > 90 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 25 : return
+    if _fanfare_countdown > 80 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 20 : return
+    if _fanfare_countdown > 0 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 18 : return
     return
 
     ; data table containing values to set NUSIZ2 to after a collision with the stinger
@@ -784,7 +857,7 @@ end
     bank 2
     inline 6lives.asm
 
-        ;********************************************************
+    ;********************************************************
     ; Here's where Stage 2 game logic goes
     ; You will probably notice some duplicated
     ; code. That's because I thought it would
@@ -1036,6 +1109,9 @@ end
     drawscreen
 
     if !_Bit7_Stage_2_Init{7} then goto __Skip_Init
+    _boss_hit_countdown = 0
+    _spider_hit_countdown = 0
+    _player_hit_countdown = 0
     _bubble_pop_countdown = 0
     _bitop_enemy_state_bools = 0
     if player2y < 30 then player2y = player2y + (_clock & 1) : goto __Reset_Listener bank1
@@ -1070,6 +1146,7 @@ __Skip_Life_Reset_Stage_2
 
     ; we can just continue to the "lives left" screen from here as long
     ; as I don't fuck up and put anything else between here
+    ; in fact, these probably could've been one subroutine
 
     if _Bit4_Bee_Death{4} then gosub __Bee_Death_Sub bank1
 
@@ -1080,30 +1157,29 @@ __Skip_Life_Reset_Stage_2
     
     if _bubble_pop_countdown > 5 then goto __Explode_Him_Stage_2
     if _boss_hit_countdown then _boss_hit_countdown = _boss_hit_countdown - 1 : AUDC1 = 8 : AUDV1 = 2 : AUDF1 = 20 - _boss_hit_countdown else AUDV1 = 0
+    if player2y <= 0 && player3y >= 100 then goto __Collect_Crown
     goto __Reset_Listener bank1
 __Explode_Him_Stage_2
-    _bug_hit_countdown = _bug_hit_countdown - 1
-    AUDC1 = 8 : AUDV1 = 2 : AUDF1 = 20 - _boss_hit_countdown
-    if _bubble_pop_countdown > 5 && _bubble_pop_countdown < 7 then player3x = player2x : player3y = player2y + 5 : player5x = player2x : player5y = player2y
+    AUDV1 = 0
+    if _bubble_pop_countdown > 5 && _bubble_pop_countdown < 7 then player3x = player2x : player3y = player2y + 5 : player5x = player2x + 4 : player5y = player2y : _bubble_pop_countdown = 8
+    _stinger_in_play = 0 : missile0x = 200 : ballx = 205 : missile0y = 200 : bally = 205
     if player2y > 0 then player2y = player2y - 1
     if player3y < 100 then player3y = player3y + 2
     if player2y > 0 || player3y < 100 then goto __Reset_Listener bank1
 __Collect_Crown
-    AUDV1 = 0
+    ; move the bee under the crown the boss dropped so he puts it on :)
     if player0x < player5x - 8 then player0x = player0x + 1 : goto __Reset_Listener bank1
     if player0x > player5x - 8 then player0x = player0x - 1 : goto __Reset_Listener bank1
     if player0y > player5y - 2 then player0y = player0y - 1 : goto __Reset_Listener bank1
-    if _fanfare_countdown > 90 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 25 : goto __Reset_Listener bank1
-    if _fanfare_countdown > 80 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 26 : goto __Reset_Listener bank1
-    if _fanfare_countdown > 70 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 25 : goto __Reset_Listener bank1
-    if _fanfare_countdown > 0 then _fanfare_countdown = _fanfare_countdown - 1 : AUDC0 = 4 : AUDV0 = 4 : AUDF0 = 20 : goto __Reset_Listener bank1
+    gosub __Fanfare_Sub_Stage_2 bank1
+    if _fanfare_countdown then goto __Reset_Listener bank1
     AUDV0 = 0
     player3x = 200 : player3y = 200
     player2x = 75 : player2y = 0
     ; just in case
     _Bit3_Stage_2{3} = 0
-    ; todo add loop bool
-    goto __Reset_Listener bank1
+    _game_loop_reset = 1
+    goto __Start_Restart bank1
 __Skip_Boss_Death
 
     if _player_hit_countdown then _spider_hit_countdown = 0 : _player_hit_countdown = _player_hit_countdown - 1 : AUDC0 = 8 : AUDV0 = 2 : AUDF0 = _player_hit_countdown : goto __End_Spider_Sound
@@ -1130,7 +1206,7 @@ __End_Spider_Sound
 __Spider_Boss_Check
     if bally < 35 then goto __Boss_Collision else goto __Spider_Collision
 __Annoying_Check
-    ; if we're here, then everything's alive, so BUT we're not at or below the top of the boss, so
+    ; if we're here, then everything's alive, BUT we're not at or below the top of the boss, so
     ; we know it is either hitting the boss's attack or the spider, so just check the spider's bounding box
     ; also, since the stinger should just pass through the boss's attack, there aren't significant
     ; ramifications of getting this wrong. A subsequent check should get it right.
@@ -1152,7 +1228,7 @@ __Boss_Collision
     if _boss_hits > 23 && !_bit5_enemy_state_bools_boss_low_dead{5} then _bit5_enemy_state_bools_boss_low_dead{5} = 1 : player2x = 77 : player2y = 12 : player3x = 200 : player3y = 200 : score = score + 500
     ; if we beat the boss, we will immediately go to the victory sequence. If he got the last hit against the player at the same time, the tie goes to the player. :)
     ; killing the boss is the only thing that increments the ones digit of the score, so players can more easily track how many loops they've completed.
-    if _boss_hits > 36 then _bit3_enemy_state_bools_boss_dead{3} = 1 : score = score + 1001 : _fanfare_countdown = 100 : goto __Reset_Listener bank1
+    if _boss_hits > 36 then _bit3_enemy_state_bools_boss_dead{3} = 1 : score = score + 1001 : _fanfare_countdown = 140 : goto __Reset_Listener bank1
 __Reset_Stinger_Stage_2
     _stinger_in_play = 0 : missile0x = 200 : ballx = 205 : missile0y = 200 : bally = 205
 __Skip_Stage_2_Collision
@@ -1164,14 +1240,18 @@ __Skip_Stage_2_Collision
 
     gosub __Stinger_Sub bank1
 
+    ; **************************************
+    ; If the spider or boss's projectiles
+    ; are out, move them.
+    ; **************************************
     if missile1y < 90 then missile1y = missile1y + 1 else missile1y = 200
     if player4y > 90 then player4y = 200 : goto __Skip_Boss_Attack
     if !(_clock & 1) then goto __Skip_Boss_Attack
     player4y = player4y + 3
-    ; this is equivalent to some sort of modulo I think
+    ; this is equivalent to some sort of modulo I think, and will cause a slight homing effect on the boss's projectile
     if !(_clock & %00000110) then goto __Skip_Boss_Attack
-    if player4x < player0x + 3 then player4x = player4x + 1
-    if player4x > player0x + 3 then player4x = player4x - 1
+    if player4x < player0x + 8 then player4x = player4x + 1
+    if player4x > player0x + 8 then player4x = player4x - 1
 __Skip_Boss_Attack
 
     ; ********************************************
@@ -1179,7 +1259,7 @@ __Skip_Boss_Attack
     ; ********************************************
     ; Spider flies across the screen and shoots
     ; when he is directly under the player
-    if _boss_hits > 23 then goto __End_Spider ; spider won't spawn during boss's final phase
+    if _boss_hits > 23 then player3y = 200 : goto __End_Spider ; spider won't spawn during boss's final phase
     if !_bit2_enemy_state_bools_spider_dead{2} then goto __End_Spider_Spawn
     temp5 = rand
     if _clock || temp5 > 130 then goto __End_Spider
@@ -1200,13 +1280,13 @@ __End_Spider
 
     if _boss_hits < 24 then goto __Early_Phases
     if _boss_corner_countdown then _boss_corner_countdown = _boss_corner_countdown - 1 : goto __Reset_Listener bank1
-    ; move in a diamond shape and shoot at each corner
-    temp5 = (rand & %00000010)
-    temp4 = (rand & %01000000)
-    if !_bit1_enemy_state_bools_boss_dir{1} && player2x < 48 then player2x = 48 : _boss_corner_countdown = 20 : player4x = player2x + 3 : player4y = player2y : _bit1_enemy_state_bools_boss_dir{1} = 1 : _bit6_enemy_state_bools_boss_dir_y ^ temp4 : goto __Reset_Listener bank1
-    if _bit1_enemy_state_bools_boss_dir{1} && player2x > 106 then player2x = 106 : _boss_corner_countdown = 20 : player4x = player2x + 3 : player4y = player2y : _bit1_enemy_state_bools_boss_dir{1} = 0 : _bit6_enemy_state_bools_boss_dir_y ^ temp4 : goto __Reset_Listener bank1
-    if _bit6_enemy_state_bools_boss_dir_y{6} && player2y > 70 then player2y = 70 : _boss_corner_countdown = 20 : player4x = player2x + 3 : player4y = player2y : _bit6_enemy_state_bools_boss_dir_y{6} = 0 : _bit1_enemy_state_bools_boss_dir ^ temp5 : goto __Reset_Listener bank1
-    if !_bit6_enemy_state_bools_boss_dir_y{6} && player2y < 12 then player2y = 12 : _boss_corner_countdown = 20 : player4x = player2x + 3 : player4y = player2y : _bit6_enemy_state_bools_boss_dir_y{6} = 1 : _bit1_enemy_state_bools_boss_dir ^ temp5 : goto __Reset_Listener bank1
+    ; move in a diamond shape and shoot at each corner thereof
+    temp3 = rand
+    ; the XORs at the end of these lines here don't seem to actually do anything (I was hoping they'd randomize direction a bit), but if I remove them I *LOSE* ROM space????? I only have tens of bytes left on this bank, so these are load-bearing no-ops!
+    if !_bit1_enemy_state_bools_boss_dir{1} && player2x < 48 then player2x = 48 : _boss_corner_countdown = 20 : player4x = player2x + 3 : player4y = player2y : _bit1_enemy_state_bools_boss_dir{1} = 1 : _bit6_enemy_state_bools_boss_dir_y{6} ^ temp3{6} : goto __Reset_Listener bank1
+    if _bit1_enemy_state_bools_boss_dir{1} && player2x > 106 then player2x = 106 : _boss_corner_countdown = 20 : player4x = player2x + 3 : player4y = player2y : _bit1_enemy_state_bools_boss_dir{1} = 0 : _bit6_enemy_state_bools_boss_dir_y{6} ^ temp3{6} : goto __Reset_Listener bank1
+    if _bit6_enemy_state_bools_boss_dir_y{6} && player2y > 70 then player2y = 70 : _boss_corner_countdown = 20 : player4x = player2x + 3 : player4y = player2y : _bit6_enemy_state_bools_boss_dir_y{6} = 0 : _bit1_enemy_state_bools_boss_dir{1} ^ temp3{1} : goto __Reset_Listener bank1
+    if !_bit6_enemy_state_bools_boss_dir_y{6} && player2y < 12 then player2y = 12 : _boss_corner_countdown = 20 : player4x = player2x + 3 : player4y = player2y : _bit6_enemy_state_bools_boss_dir_y{6} = 1 : _bit1_enemy_state_bools_boss_dir{1} = !_bit1_enemy_state_bools_boss_dir{1} : goto __Reset_Listener bank1
     if _bit1_enemy_state_bools_boss_dir{1} then player2x = player2x + 1 else player2x = player2x - 1
     if _bit6_enemy_state_bools_boss_dir_y{6} then player2y = player2y + 1 else player2y = player2y - 1
     goto __Reset_Listener bank1
@@ -1216,7 +1296,10 @@ __Early_Phases
     ; Boss movement and fire behavior
     ; Boss exists in three phases, during which
     ; the segments of his body are removed
-    player2y = 30 ; todo add offset
+    ; this code handles the first two phases,
+    ; which are only marginally different
+    ; *************************************
+    player2y = 30
     if _boss_hits > 11 then player2y = player2y - 6
     if player2x < 55 then _bit1_enemy_state_bools_boss_dir{1} = 1
     if player2x > 100 then _bit1_enemy_state_bools_boss_dir{1} = 0
