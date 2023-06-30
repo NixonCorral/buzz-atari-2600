@@ -24,3 +24,5 @@ Bear in mind that the file size is eight (8) kilobytes, so please make sure you 
 
 ## About
 This game was made with love in DeKalb County, Georgia, by Clayton Anderson. 🍑
+
+It is written in [batari Basic](https://github.com/batari-Basic/batari-Basic).
